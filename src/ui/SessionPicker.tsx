@@ -1,19 +1,8 @@
 import { useKeyboard } from '@opentui/react'
 import type { Hint } from './Hints'
-import {
-  cutEnd,
-  cutStart,
-  filterByText,
-  isEnter,
-  ListRow,
-  Overlay,
-  padWidth,
-  typedText,
-  useKeyState,
-  useLine,
-  useOverlayLayout,
-  windowStart,
-} from './Palette'
+import { cutEnd, cutStart, padWidth } from '../utils'
+import { isEnter, typedText, useKeyState, useLine } from './keys'
+import { filterByText, ListRow, Overlay, useOverlayLayout, windowStart } from './Palette'
 import { color, glyph } from './theme'
 
 /** One session of the folder, as the session picker shows it. */

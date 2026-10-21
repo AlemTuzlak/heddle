@@ -1,7 +1,8 @@
-import { decodePasteBytes, stripAnsiSequences, type KeyEvent } from '@opentui/core'
-import { useKeyboard, usePaste, useTerminalDimensions } from '@opentui/react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useKeyboard, useTerminalDimensions } from '@opentui/react'
+import type { ReactNode } from 'react'
+import { cutEnd, cutStart, padWidth } from '../utils'
 import { Hints, type Hint } from './Hints'
+import { isEnter, useKeyState, useLine } from './keys'
 import { color } from './theme'
 
 // The parts from here to `PaletteItem` are the parts of an overlay. The
@@ -41,84 +42,6 @@ const SELECTED_BG = '#23222f'
 /** The bar at the left end of the selected row. */
 const SELECTED_BAR = '▎'
 
-/** The mark at the end or at the start of a text that is cut. */
-const ELLIPSIS = '…'
-
-/** The keys that pick the selected row, as in the OpenTUI input. */
-const ENTER_KEYS = new Set(['return', 'kpenter', 'linefeed'])
-
-/** A control code. A key with one in its sequence types nothing. */
-const CONTROL = /[\x00-\x1f\x7f-\x9f]/
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-
-/** The characters of `text` as the user sees them: an emoji with its modifiers is one. */
-function graphemes(text: string) {
-  return Array.from(graphemeSegmenter.segment(text), (part) => part.segment)
-}
-
-/** The first characters that fill at most `width` cells. */
-function takeWidth(characters: ReadonlyArray<string>, width: number) {
-  const taken: Array<string> = []
-  let used = 0
-  for (const character of characters) {
-    const cells = Bun.stringWidth(character)
-    if (used + cells > width) break
-    taken.push(character)
-    used += cells
-  }
-  return taken
-}
-
-/**
- * `text` in at most `width` cells. A longer text keeps its start and ends
- * with `…`.
- *
- * @example
- * cutEnd('Fix the failing add test', 10) // 'Fix the f…'
- */
-export function cutEnd(text: string, width: number) {
-  if (width < 1) return ''
-  if (Bun.stringWidth(text) <= width) return text
-  return takeWidth(graphemes(text), width - 1).join('') + ELLIPSIS
-}
-
-/**
- * `text` in at most `width` cells. A longer text keeps its end and starts
- * with `…`, so the place where the user types stays in view.
- *
- * @example
- * cutStart('Fix the failing add test', 10) // '…add test'
- */
-export function cutStart(text: string, width: number) {
-  if (width < 1) return ''
-  if (Bun.stringWidth(text) <= width) return text
-  const characters = graphemes(text).reverse()
-  return ELLIPSIS + takeWidth(characters, width - 1).reverse().join('')
-}
-
-/** `text` with spaces after it, so that it fills `width` cells. */
-export function padWidth(text: string, width: number) {
-  return text + ' '.repeat(Math.max(0, width - Bun.stringWidth(text)))
-}
-
-/**
- * The text that a key types, as the OpenTUI input reads it. `undefined` when
- * it types nothing, for example for an arrow or a key with ctrl.
- */
-export function typedText(key: KeyEvent) {
-  const isPlain = !key.ctrl && !key.meta && !key.super && !key.hyper
-  if (!isPlain) return undefined
-  if (key.name === 'space') return ' '
-  const isText = key.sequence !== '' && !CONTROL.test(key.sequence)
-  return isText ? key.sequence : undefined
-}
-
-/** True for enter. */
-export function isEnter(key: KeyEvent) {
-  return ENTER_KEYS.has(key.name)
-}
-
 /**
  * The items whose text has `query`, in any case, in their order.
  *
@@ -131,55 +54,6 @@ export function isEnter(key: KeyEvent) {
 export function filterByText<T>(items: ReadonlyArray<T>, query: string, textOf: (item: T) => string) {
   const needle = query.toLowerCase()
   return items.filter((item) => textOf(item).toLowerCase().includes(needle))
-}
-
-/** Pasted bytes as text for one line: no escape codes, line breaks, or other control codes. */
-function pastedText(bytes: Uint8Array) {
-  return stripAnsiSequences(decodePasteBytes(bytes)).replace(/[\x00-\x1f\x7f-\x9f]/g, '')
-}
-
-/**
- * State that a key handler can read at once. Keys can come faster than React
- * draws, so a handler reads `now()`, and the render reads `value`.
- */
-export function useKeyState<T>(initial: T) {
-  const ref = useRef(initial)
-  const [value, setValue] = useState(initial)
-  const set = (next: T) => {
-    ref.current = next
-    setValue(next)
-  }
-  return { value, now: () => ref.current, set }
-}
-
-/**
- * A line of text that the user types or pastes. A key handler gives each key
- * to `press`. A paste adds to the line while `isActive()` is true.
- *
- * @param isActive True while the line takes the pastes.
- * @param onEdit Called after each key or paste that changes the line. `set` does not call it.
- */
-export function useLine({ isActive, onEdit }: { isActive: () => boolean; onEdit?: () => void }) {
-  const line = useKeyState('')
-  const edit = (next: string) => {
-    line.set(next)
-    onEdit?.()
-  }
-  usePaste((event) => {
-    if (!isActive()) return
-    event.preventDefault()
-    edit(line.now() + pastedText(event.bytes))
-  })
-  /** Types the text of `key`, or deletes the last character for backspace. Other keys do nothing. */
-  const press = (key: KeyEvent) => {
-    if (key.name === 'backspace') {
-      edit(graphemes(line.now()).slice(0, -1).join(''))
-      return
-    }
-    const typed = typedText(key)
-    if (typed !== undefined) edit(line.now() + typed)
-  }
-  return { text: line.value, now: line.now, set: line.set, press }
 }
 
 /**

@@ -1,8 +1,9 @@
-import { decodePasteBytes, stripAnsiSequences, TextAttributes, type KeyEvent } from '@opentui/core'
+import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, usePaste } from '@opentui/react'
 import type { Approval, ViewQuestion } from '@tanstack/ai-harness/view'
 import { Fragment, useRef, useState, type ReactNode } from 'react'
 import { isRecord } from '../utils'
+import { isEnter, isPlain, pastedText, typedText, useKeyState } from './keys'
 import { color } from './theme'
 
 /** One dot for each character of a secret. */
@@ -10,12 +11,6 @@ const MASK = '•'
 
 /** The most characters of a tool target or a question that the bar shows. */
 const MAX_SHOWN = 300
-
-/** The keys that send the text, as in the OpenTUI input. */
-const SUBMIT_KEYS = new Set(['return', 'kpenter', 'linefeed'])
-
-/** Control codes, which a key press must not type. */
-const CONTROL = /[\x00-\x1f\x7f-\x9f]/
 
 /** The argument names that say what a tool call acts on, in the order the bar reads them. */
 const TARGET_KEYS = ['path', 'command', 'pattern', 'url', 'query']
@@ -120,24 +115,6 @@ function choiceKeys(choices: ReadonlyArray<unknown>) {
   return labeled.map(({ value, label }, index) => ({ key: String(index + 1), label, value }))
 }
 
-/** A key without ctrl, meta, super, or hyper. */
-function isPlain(key: KeyEvent) {
-  return !key.ctrl && !key.meta && !key.super && !key.hyper
-}
-
-/** The text that a key types, as the OpenTUI input reads it. `undefined` when it types nothing. */
-function typedText(key: KeyEvent) {
-  if (!isPlain(key)) return undefined
-  if (key.name === 'space') return ' '
-  const isText = key.sequence !== '' && !CONTROL.test(key.sequence)
-  return isText ? key.sequence : undefined
-}
-
-/** Pasted bytes as text for one line, as in the OpenTUI input: no escape codes, no line breaks. */
-function pastedText(bytes: Uint8Array) {
-  return stripAnsiSequences(decodePasteBytes(bytes)).replace(/[\r\n]/g, '')
-}
-
 /** Answer `question`. It gives the problem text when the session did not take the answer. */
 async function answerWith(question: ViewQuestion, value: unknown) {
   const receipt = await question.answer(value)
@@ -172,20 +149,6 @@ function questionDecisions(question: ViewQuestion) {
     reject: (reason) =>
       answerWith(question, reason === '' ? 'reject' : { answer: 'reject', message: reason }),
   } satisfies Decisions
-}
-
-/**
- * State that a key handler can read at once. Keys can come faster than React
- * draws, so a handler reads `now()`, and the render reads `value`.
- */
-function useKeyState<T>(initial: T) {
-  const ref = useRef(initial)
-  const [value, setValue] = useState(initial)
-  const set = (next: T) => {
-    ref.current = next
-    setValue(next)
-  }
-  return { value, now: () => ref.current, set }
 }
 
 /**
@@ -231,7 +194,7 @@ function useDraft(secret: boolean, isActive: () => boolean) {
   })
   /** Enter calls `onSubmit` with the text. Other keys type or delete. True for a key it used. */
   const press = (key: KeyEvent, onSubmit: (text: string) => void) => {
-    if (SUBMIT_KEYS.has(key.name)) {
+    if (isEnter(key)) {
       onSubmit(text.current)
       return true
     }
