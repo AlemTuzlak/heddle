@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { rgbToHex, type TextareaRenderable } from '@opentui/core'
-import type { MockInput } from '@opentui/core/testing'
-import { testRender } from '@opentui/react/test-utils'
-import { act, createRef, type ComponentProps, type ReactNode } from 'react'
+import type { TextareaRenderable } from '@opentui/core'
+import { createRef, type ComponentProps } from 'react'
 import { Palette, type PaletteItem } from './Palette'
 import { SessionPicker, type SessionRow } from './SessionPicker'
+import { mount } from './test-utils'
 import { color } from './theme'
 
 /** OpenTUI sends a lone esc as a key after 20 ms. Wait a little more. */
@@ -49,37 +48,6 @@ const SESSIONS: ReadonlyArray<SessionRow> = [
     updatedAt: NOW - 3 * DAY,
   },
 ]
-
-/**
- * Render `node` in a test terminal. `input` sends keys inside act(), and
- * draws the next frame. Dispose it with `await using`.
- */
-async function mount(node: ReactNode, size = { width: 100, height: 20 }) {
-  const setup = await testRender(node, size)
-  await setup.renderOnce()
-  const frame = () => setup.captureCharFrame()
-  return {
-    frame,
-    /** The first line of the frame that has `text`. */
-    lineWith: (text: string) => frame().split('\n').find((line) => line.includes(text)) ?? '',
-    /** The hex color of the first text run that has `text`. */
-    colorOf: (text: string) => {
-      const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
-      const span = spans.find((candidate) => candidate.text.includes(text))
-      return span && rgbToHex(span.fg)
-    },
-    input: async (send: (keys: MockInput) => unknown, waitMs = 0) => {
-      await act(async () => {
-        await send(setup.mockInput)
-        await Bun.sleep(waitMs)
-      })
-      await setup.renderOnce()
-    },
-    // The renderer unmounts the React root when it is destroyed.
-    // act() tells React that this update is expected in a test.
-    [Symbol.asyncDispose]: () => act(() => setup.dispose()),
-  }
-}
 
 /** A picker of `SESSIONS`. `calls` keeps each call of its callbacks, in order. */
 function createPicker(props: Partial<ComponentProps<typeof SessionPicker>> = {}) {

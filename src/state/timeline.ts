@@ -9,7 +9,7 @@ import type {
   ViewPart,
 } from '@tanstack/ai-harness/view'
 import { color, glyph } from '../ui/theme'
-import { isRecord, relativePath } from '../utils'
+import { graphemes, isRecord, relativePath } from '../utils'
 
 /** One item of the timeline. */
 export interface Row {
@@ -415,15 +415,6 @@ const MIN_HANG = 10
 const TAIL_GAP = 2
 /** The first spinner frame. The timeline pane swaps it for the frame of the moment. */
 const SPINNER = glyph.spinner.charAt(0)
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-  granularity: 'grapheme',
-})
-
-/** The characters of `text` as the user sees them: an emoji with its modifiers is one. */
-function graphemes(text: string) {
-  return Array.from(graphemeSegmenter.segment(text), (item) => item.segment)
-}
 
 /** The display width of the segments, in terminal cells. */
 function widthOf(segments: ReadonlyArray<Segment>) {

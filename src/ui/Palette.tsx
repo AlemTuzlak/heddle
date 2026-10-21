@@ -36,9 +36,6 @@ const FRAME_ROWS = 10
 /** The columns of the search box that are not for the text: its borders, its padding, `⌕ `, and the cursor. */
 const SEARCH_FRAME_COLUMNS = 7
 
-/** The background of the selected row, as in the mockup. */
-const SELECTED_BG = '#23222f'
-
 /** The bar at the left end of the selected row. */
 const SELECTED_BAR = '▎'
 
@@ -85,7 +82,7 @@ export function windowStart(count: number, selected: number, size: number) {
 /** One row of a list. The selected row has the indigo bar and a lighter background. Its children go in a `<text>`. */
 export function ListRow({ selected, children }: { selected: boolean; children: ReactNode }) {
   return (
-    <box height={1} flexShrink={0} backgroundColor={selected ? SELECTED_BG : 'transparent'}>
+    <box height={1} flexShrink={0} backgroundColor={selected ? color.selectedBg : 'transparent'}>
       <text fg={color.linen} wrapMode="none">
         <span fg={color.indigo}>{selected ? SELECTED_BAR : ' '}</span>
         {children}

@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { rgbToHex } from '@opentui/core'
-import type { MockInput } from '@opentui/core/testing'
-import { testRender } from '@opentui/react/test-utils'
 import type { Receipt } from '@tanstack/ai-harness'
 import type { Approval, ViewQuestion } from '@tanstack/ai-harness/view'
-import { act, type ReactNode } from 'react'
 import { ApprovalBar } from './ApprovalBar'
 import { Header } from './Header'
 import { Hints } from './Hints'
+import { mount } from './test-utils'
 import { color } from './theme'
+
+/** The test terminal of the bar and the hints. */
+const BAR = { width: 100, height: 8 }
 
 /** OpenTUI sends a lone esc as a key after 20 ms. Wait a little more. */
 const ESCAPE_WAIT_MS = 40
@@ -39,34 +39,6 @@ const CODE_MODE_APPROVAL_SCHEMA = {
 }
 
 const accepted: Receipt = { inputId: 'input-1', status: 'accepted' }
-
-/**
- * Render `node` in a test terminal. `input` sends keys inside act(), lets the
- * answers settle, and draws the next frame. Dispose it with `await using`.
- */
-async function mount(node: ReactNode, size = { width: 100, height: 8 }) {
-  const setup = await testRender(node, size)
-  await setup.renderOnce()
-  return {
-    frame: () => setup.captureCharFrame(),
-    /** The hex color of the first text run that has `text`. */
-    colorOf: (text: string) => {
-      const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
-      const span = spans.find((candidate) => candidate.text.includes(text))
-      return span && rgbToHex(span.fg)
-    },
-    input: async (send: (keys: MockInput) => unknown, waitMs = 0) => {
-      await act(async () => {
-        await send(setup.mockInput)
-        await Bun.sleep(waitMs)
-      })
-      await setup.renderOnce()
-    },
-    // The renderer unmounts the React root when it is destroyed.
-    // act() tells React that this update is expected in a test.
-    [Symbol.asyncDispose]: () => act(() => setup.dispose()),
-  }
-}
 
 /** A `bash` approval that keeps each call of its actions. */
 function createApproval(command: string) {
@@ -158,7 +130,7 @@ describe('Hints', () => {
 describe('ApprovalBar with an approval', () => {
   test('y approves once', async () => {
     const { approval, calls } = createApproval('node --test')
-    await using bar = await mount(<ApprovalBar approval={approval} focused />)
+    await using bar = await mount(<ApprovalBar approval={approval} focused />, BAR)
     expect(bar.frame()).toContain('bash wants to run node --test')
     expect(bar.frame()).toContain(' y once')
     await bar.input((keys) => keys.pressKey('y'))
@@ -168,14 +140,14 @@ describe('ApprovalBar with an approval', () => {
 
   test('a approves always', async () => {
     const { approval, calls } = createApproval('node --test')
-    await using bar = await mount(<ApprovalBar approval={approval} focused />)
+    await using bar = await mount(<ApprovalBar approval={approval} focused />, BAR)
     await bar.input((keys) => keys.pressKey('a'))
     expect(calls).toEqual([{ action: 'approve', options: { payload: 'always' } }])
   })
 
   test('n then a reason rejects with it', async () => {
     const { approval, calls } = createApproval('node --test')
-    await using bar = await mount(<ApprovalBar approval={approval} focused />)
+    await using bar = await mount(<ApprovalBar approval={approval} focused />, BAR)
     // The keys come before React draws again, and the reason has an `a` and a `y` in it.
     await bar.input(async (keys) => {
       keys.pressKey('n')
@@ -188,7 +160,7 @@ describe('ApprovalBar with an approval', () => {
 
   test('esc goes back from the reason to the keys', async () => {
     const { approval, calls } = createApproval('node --test')
-    await using bar = await mount(<ApprovalBar approval={approval} focused />)
+    await using bar = await mount(<ApprovalBar approval={approval} focused />, BAR)
     await bar.input((keys) => keys.pressKey('n'))
     expect(bar.frame()).toContain('say why ›')
     await bar.input((keys) => keys.pressEscape(), ESCAPE_WAIT_MS)
@@ -200,7 +172,7 @@ describe('ApprovalBar with an approval', () => {
 
   test('keys do nothing while the bar is not focused', async () => {
     const { approval, calls } = createApproval('node --test')
-    await using bar = await mount(<ApprovalBar approval={approval} focused={false} />)
+    await using bar = await mount(<ApprovalBar approval={approval} focused={false} />, BAR)
     await bar.input((keys) => keys.pressKey('y'))
     expect(calls).toEqual([])
   })
@@ -224,7 +196,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Paste your Anthropic API key',
       secret: true,
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     await bar.input((keys) => keys.typeText('sk-test-123'))
     // One dot for each of the 11 characters, then the cursor.
     expect(bar.frame()).toContain(`› ${'•'.repeat(11)} `)
@@ -239,7 +211,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Paste your Anthropic API key',
       secret: true,
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     await bar.input((keys) => keys.pasteBracketedText('sk-paste-4567\n'))
     // The line break of the paste is dropped: 13 dots.
     expect(bar.frame()).toContain(`› ${'•'.repeat(13)} `)
@@ -253,7 +225,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Keep the old file?',
       schema: { type: 'string', enum: ['keep', 'discard'] },
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     expect(bar.frame()).toContain(' k keep')
     expect(bar.frame()).toContain(' d discard')
     await bar.input((keys) => keys.pressKey('d'))
@@ -265,7 +237,7 @@ describe('ApprovalBar with a question', () => {
       message: 'What now?',
       schema: { type: 'string', enum: ['start', 'stop'] },
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     expect(bar.frame()).toContain(' 1 start')
     expect(bar.frame()).toContain(' 2 stop')
     await bar.input((keys) => keys.pressKey('2'))
@@ -280,7 +252,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Allow bash {"command":"ls"}? Answer once, always, or reject.',
       schema: CODE_MODE_APPROVAL_SCHEMA,
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     expect(bar.frame()).toContain(' y once')
     await bar.input((keys) => keys.pressKey(key))
     expect(answers).toEqual([answer])
@@ -291,7 +263,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Allow bash {"command":"rm -rf dist"}? Answer once, always, or reject.',
       schema: CODE_MODE_APPROVAL_SCHEMA,
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     await bar.input((keys) => keys.pressKey('n'))
     await bar.input((keys) => keys.typeText('keep dist'))
     await bar.input((keys) => keys.pressEnter())
@@ -304,7 +276,7 @@ describe('ApprovalBar with a question', () => {
       message: 'Sign in to Linear, then press enter.',
       url: 'https://linear.app/oauth/authorize',
     })
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     expect(bar.frame()).toContain('open https://linear.app/oauth/authorize')
   })
 
@@ -313,7 +285,7 @@ describe('ApprovalBar with a question', () => {
       { message: 'Name the branch' },
       { inputId: 'input-1', status: 'rejected', reason: 'Invalid answer: too short' },
     )
-    await using bar = await mount(<ApprovalBar question={question} focused />)
+    await using bar = await mount(<ApprovalBar question={question} focused />, BAR)
     await bar.input(async (keys) => {
       await keys.typeText('x')
       keys.pressEnter()

@@ -2,7 +2,7 @@ import { pathToFiletype, type SyntaxStyle } from '@opentui/core'
 import { useKeyboard } from '@opentui/react'
 import { useEffect } from 'react'
 import type { ChangesState, FileEntry } from '../state/changes'
-import { cutStart, padWidth } from '../utils'
+import { cutStart, padWidth, widest } from '../utils'
 import { typedText, useKeyState } from './keys'
 import { ListRow, windowStart } from './Palette'
 import { color } from './theme'
@@ -96,11 +96,6 @@ function barOf(file: FileEntry) {
 /** The counts of a file, as the list shows them: `+N` and `−N`. */
 function countsOf(file: FileEntry) {
   return { added: `+${file.additions}`, deleted: `−${file.deletions}` }
-}
-
-/** The widest of `texts`, in cells. 0 when there are none. */
-function widest(texts: ReadonlyArray<string>) {
-  return Math.max(0, ...texts.map((text) => Bun.stringWidth(text)))
 }
 
 /**

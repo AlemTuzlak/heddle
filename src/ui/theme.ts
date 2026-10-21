@@ -18,6 +18,8 @@ export const color = {
   weld: '#e3c26a',
   weldBg: '#24200f',
   keyword: '#a9b0ff',
+  /** The quiet background of a selected row, as in the mockup. */
+  selectedBg: '#23222f',
 } as const
 
 /** The glyphs of the timeline and the changes pane. `spinner` has one frame for each character. */

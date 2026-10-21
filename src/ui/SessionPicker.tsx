@@ -1,6 +1,6 @@
 import { useKeyboard } from '@opentui/react'
 import type { Hint } from './Hints'
-import { cutEnd, cutStart, padWidth } from '../utils'
+import { cutEnd, cutStart, padWidth, widest } from '../utils'
 import { isEnter, typedText, useKeyState, useLine } from './keys'
 import { filterByText, ListRow, Overlay, useOverlayLayout, windowStart } from './Palette'
 import { color, glyph } from './theme'
@@ -112,11 +112,6 @@ function cellsOf(session: SessionRow, now: number) {
 }
 
 type Cells = ReturnType<typeof cellsOf>
-
-/** The widest of `texts`, in cells. 0 when there are none. */
-function widest(texts: ReadonlyArray<string>) {
-  return Math.max(0, ...texts.map((text) => Bun.stringWidth(text)))
-}
 
 /**
  * The cells of each column in a row of `inner` cells. A column fits its

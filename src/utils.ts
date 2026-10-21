@@ -60,6 +60,11 @@ export function padWidth(text: string, width: number) {
   return text + ' '.repeat(Math.max(0, width - Bun.stringWidth(text)))
 }
 
+/** The width of the widest of `texts`, in terminal cells. 0 when there are none. */
+export function widest(texts: ReadonlyArray<string>) {
+  return Math.max(0, ...texts.map((text) => Bun.stringWidth(text)))
+}
+
 /** `path` relative to `root`, with `/`. A path outside `root` stays as it is. */
 export function relativePath(path: string, root: string) {
   const slashed = path.replaceAll('\\', '/')

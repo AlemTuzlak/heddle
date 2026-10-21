@@ -5,9 +5,6 @@ import type { Line, Segment } from '../state/timeline'
 import { isEnter, isPlain, useKeyState } from './keys'
 import { color, glyph } from './theme'
 
-/** The background of the selected row: the quiet background of a selected row in the mockup. */
-const SELECTED_BG = '#23222f'
-
 /** The frames of the spinner. */
 const FRAMES = Array.from(glyph.spinner)
 
@@ -132,7 +129,7 @@ function attributesOf(segment: Segment) {
 /** One line of the window. The selected row has the quiet background. */
 function LineView({ line, selected, spinner }: { line: Line; selected: boolean; spinner: string }) {
   return (
-    <box height={1} flexShrink={0} backgroundColor={selected ? SELECTED_BG : 'transparent'}>
+    <box height={1} flexShrink={0} backgroundColor={selected ? color.selectedBg : 'transparent'}>
       <text fg={color.linen} wrapMode="none">
         {line.segments.map((segment, index) => (
           <span key={index} fg={segment.fg} bg={segment.bg} attributes={attributesOf(segment)}>
