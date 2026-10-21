@@ -2,6 +2,7 @@ import { decodePasteBytes, stripAnsiSequences, TextAttributes, type KeyEvent } f
 import { useKeyboard, usePaste } from '@opentui/react'
 import type { Approval, ViewQuestion } from '@tanstack/ai-harness/view'
 import { Fragment, useRef, useState, type ReactNode } from 'react'
+import { isRecord } from '../utils'
 import { color } from './theme'
 
 /** One dot for each character of a secret. */
@@ -40,10 +41,6 @@ interface ChoiceKey {
   key: string
   label: string
   value: unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function isList(value: unknown): value is ReadonlyArray<unknown> {

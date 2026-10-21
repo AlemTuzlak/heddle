@@ -9,6 +9,7 @@ import type {
   ViewPart,
 } from '@tanstack/ai-harness/view'
 import { color, glyph } from '../ui/theme'
+import { isRecord, relativePath } from '../utils'
 
 /** One item of the timeline. */
 export interface Row {
@@ -114,23 +115,9 @@ interface Scope {
 
 /** The string at `key` of a JSON value, such as the arguments of a tool call. */
 function stringAt(value: unknown, key: string) {
-  if (typeof value !== 'object' || value === null) return undefined
-  const field: unknown = Reflect.get(value, key)
+  if (!isRecord(value)) return undefined
+  const field = value[key]
   return typeof field === 'string' ? field : undefined
-}
-
-/** `path` relative to `root`, with `/`. A path outside `root` stays as it is. */
-function relativePath(path: string, root: string) {
-  const slashed = path.replaceAll('\\', '/')
-  const base = root.replaceAll('\\', '/').replace(/\/+$/, '')
-  // On Windows, two paths that differ only in case are the same path.
-  const isWindows = /^[a-z]:/i.test(base)
-  const comparable = (text: string) => (isWindows ? text.toLowerCase() : text)
-  if (comparable(slashed) === comparable(base)) return '.'
-  const isInside = comparable(slashed).startsWith(`${comparable(base)}/`)
-  return isInside
-    ? slashed.slice(base.length + 1)
-    : slashed.replace(/^\.\//, '')
 }
 
 /** What a tool call works on: a path, a search, the files of a patch, a command, or a URL. */

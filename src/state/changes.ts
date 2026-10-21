@@ -2,6 +2,7 @@ import { HARNESS_EVENTS } from '@tanstack/ai-harness'
 import { FileChanged } from '@tanstack/ai-harness/plugins/coding'
 import type { SessionEvent } from '@tanstack/ai-harness'
 import type { FileChange } from '@tanstack/ai-harness/plugins/coding'
+import { isRecord, relativePath } from '../utils'
 
 /** One change of a file. */
 export interface Patch {
@@ -70,9 +71,9 @@ export function applyChange(
   root: string,
   at: number,
 ) {
-  const rel = relOf(change.path, root)
+  const rel = relativePath(change.path, root)
   // A move continues the entry of its old path.
-  const oldRel = change.from === undefined ? rel : relOf(change.from, root)
+  const oldRel = change.from === undefined ? rel : relativePath(change.from, root)
   const old = state.files.find((file) => file.rel === oldRel)
   const base = old ?? { additions: 0, deletions: 0, patches: [] }
   const patch: Patch = {
@@ -153,14 +154,6 @@ export function watchChanges(
   return watch
 }
 
-/** It gives `path` from `root`, with `/`. A path outside `root` stays whole. */
-function relOf(path: string, root: string) {
-  // Windows paths have `\`, and the paths of a Docker sandbox have `/`.
-  const file = path.replaceAll('\\', '/')
-  const folder = root.replaceAll('\\', '/').replace(/\/+$/, '')
-  return file.startsWith(`${folder}/`) ? file.slice(folder.length + 1) : file
-}
-
 /** The kinds of change of a `FileChange`. The type makes sure that no kind is missing. */
 const KINDS: Record<FileChange['change'], true> = {
   created: true,
@@ -175,7 +168,7 @@ const KINDS: Record<FileChange['change'], true> = {
  * fields.
  */
 function isFileChange(value: unknown): value is FileChange {
-  if (typeof value !== 'object' || value === null) return false
+  if (!isRecord(value)) return false
   const fields: Partial<Record<keyof FileChange, unknown>> = value
   const texts = [fields.from, fields.patch, fields.toolCallId]
   return (
