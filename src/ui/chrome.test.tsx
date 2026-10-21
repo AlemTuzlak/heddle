@@ -4,14 +4,11 @@ import type { Approval, ViewQuestion } from '@tanstack/ai-harness/view'
 import { ApprovalBar } from './ApprovalBar'
 import { Header } from './Header'
 import { Hints } from './Hints'
-import { mount } from './test-utils'
+import { ESCAPE_WAIT_MS, mount } from './test-utils'
 import { color } from './theme'
 
 /** The test terminal of the bar and the hints. */
 const BAR = { width: 100, height: 8 }
-
-/** OpenTUI sends a lone esc as a key after 20 ms. Wait a little more. */
-const ESCAPE_WAIT_MS = 40
 
 /**
  * The answer schema of a code mode approval: a copy of

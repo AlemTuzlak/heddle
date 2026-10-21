@@ -3,11 +3,8 @@ import type { TextareaRenderable } from '@opentui/core'
 import { createRef, type ComponentProps } from 'react'
 import { Palette, type PaletteItem } from './Palette'
 import { SessionPicker, type SessionRow } from './SessionPicker'
-import { mount } from './test-utils'
+import { ESCAPE_WAIT_MS, mount } from './test-utils'
 import { color } from './theme'
-
-/** OpenTUI sends a lone esc as a key after 20 ms. Wait a little more. */
-const ESCAPE_WAIT_MS = 40
 
 const NOW = Date.UTC(2026, 9, 21, 9, 41)
 const MINUTE = 60_000

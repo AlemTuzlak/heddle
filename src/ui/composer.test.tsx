@@ -3,11 +3,8 @@ import { useKeyboard } from '@opentui/react'
 import type { ViewCommand } from '@tanstack/ai-harness/view'
 import { useState } from 'react'
 import { Composer } from './Composer'
-import { mount } from './test-utils'
+import { ESCAPE_WAIT_MS, mount } from './test-utils'
 import { color } from './theme'
-
-/** OpenTUI sends a lone esc as a key after 20 ms. Wait a little more. */
-const ESCAPE_WAIT_MS = 40
 
 /**
  * shift+enter as a terminal with modifyOtherKeys sends it. A plain terminal

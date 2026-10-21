@@ -4,6 +4,9 @@ import type { MockInput } from '@opentui/core/testing'
 import { testRender } from '@opentui/react/test-utils'
 import { act, type ReactNode } from 'react'
 
+/** OpenTUI sends a lone esc as a key after 20 ms. A test waits a little more. */
+export const ESCAPE_WAIT_MS = 40
+
 /**
  * Render `node` in a test terminal. `input` sends keys inside act(), waits
  * `waitMs` for the answers to settle, and draws the next frame. Dispose it
