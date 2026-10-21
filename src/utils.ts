@@ -1,8 +1,8 @@
 // Small helpers that the state and UI modules share. They know nothing about heddle.
 
-/** True for an object that is not `null`, such as a value of parsed JSON. */
+/** True for a JSON object: not `null`, and not an array. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** `path` relative to `root`, with `/`. A path outside `root` stays as it is. */

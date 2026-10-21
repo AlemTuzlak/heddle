@@ -153,7 +153,7 @@ function parseJson(text: string, file: string) {
  * does not set stays out, so that it does not hide the field of the home file.
  */
 function configOf(json: unknown, file: string) {
-  if (!isJsonObject(json)) {
+  if (!isRecord(json)) {
     throw badField(file, 'the file', 'must contain a JSON object')
   }
   const fields = knownFields(json, CONFIG_FIELDS, file, '')
@@ -175,7 +175,7 @@ function configOf(json: unknown, file: string) {
 function sandboxOf(value: unknown, file: string) {
   if (value === false) return false
   if (value === true) return { image: DEFAULT_IMAGE }
-  if (!isJsonObject(value)) {
+  if (!isRecord(value)) {
     throw badField(file, 'sandbox', 'must be true, false, or an object')
   }
   const fields = knownFields(value, { image: true }, file, 'sandbox')
@@ -186,7 +186,7 @@ function sandboxOf(value: unknown, file: string) {
 function codeModeOf(value: unknown, file: string) {
   if (value === false) return false
   if (value === true) return defaultCodeMode()
-  if (!isJsonObject(value)) {
+  if (!isRecord(value)) {
     throw badField(file, 'codeMode', 'must be true, false, or an object')
   }
   const fields = knownFields(value, { directCalls: true }, file, 'codeMode')
@@ -201,7 +201,7 @@ function codeModeOf(value: unknown, file: string) {
 
 /** The `mcp` field: the servers, by name. */
 function serversOf(value: unknown, file: string) {
-  if (!isJsonObject(value)) throw badField(file, 'mcp', 'must be an object')
+  if (!isRecord(value)) throw badField(file, 'mcp', 'must be an object')
   // `Object.fromEntries`, so that a server named `__proto__` stays a server.
   const servers = Object.entries(value).map(
     ([name, server]) => [name, serverOf(server, file, `mcp.${name}`)] as const,
@@ -211,7 +211,7 @@ function serversOf(value: unknown, file: string) {
 
 /** One MCP server. Its `type` tells which fields it can have. */
 function serverOf(value: unknown, file: string, path: string) {
-  if (!isJsonObject(value)) throw badField(file, path, 'must be an object')
+  if (!isRecord(value)) throw badField(file, path, 'must be an object')
   const type = oneOf(value.type, ['http', 'stdio'], file, `${path}.type`)
   if (type === 'http') {
     const fields = knownFields(value, HTTP_FIELDS, file, path)
@@ -299,14 +299,6 @@ function knownFields<K extends string>(
   return value
 }
 
-/**
- * True for a JSON object. `isRecord` is also true for an array, but an array
- * is not an object in a config file.
- */
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && !Array.isArray(value)
-}
-
 function stringOf(value: unknown, file: string, field: string) {
   if (typeof value !== 'string') throw badField(file, field, 'must be a string')
   return value
@@ -336,7 +328,7 @@ function stringListOf(value: unknown, file: string, field: string) {
 
 /** An object with string values, such as `env` or `headers`. */
 function stringMapOf(value: unknown, file: string, field: string) {
-  if (!isJsonObject(value)) {
+  if (!isRecord(value)) {
     throw badField(file, field, 'must be an object with string values')
   }
   const entries = Object.entries(value).map(
