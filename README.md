@@ -394,6 +394,8 @@ To open a session again:
 
 The session picker lists the 50 newest sessions of this folder. Each row shows the status, the title, where the tools run, the time, and the cost. The status is `●` live, `◌` needs you, or `✓` done.
 
+A session goes on when you open another one. Its turn runs, and an approval waits for you. The header counts the sessions that you left in this run and that still work, for example `◌ 1 session needs you` or `● 2 sessions running`. Open the session with `ctrl+o` to answer it. When you quit heddle, the turns stop, and they go on when you open the session again.
+
 | Key | What it does |
 | --- | --- |
 | `↑` `↓` | Move. |

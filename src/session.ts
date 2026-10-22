@@ -69,6 +69,11 @@ export interface Heddle {
   /** Gives the session `threadId` a new title. It throws `heddle has no session <id>.` for an unknown id. */
   rename(threadId: string, title: string): Promise<void>
   /**
+   * Calls `listener` when an open session starts or stops a run, waits for an
+   * answer, or gets a new title. Gives the function that stops the calls.
+   */
+  onSessionsChange(listener: () => void): () => void
+  /**
    * Closes the open sessions, stops the sandbox, then closes the host and the
    * stores. A turn that runs now goes on when its session opens again. A
    * second call waits for the first one.
@@ -443,6 +448,16 @@ export async function startHeddle(options: {
     rename: async (threadId, title) => {
       const entry = await host.sessions.rename({ threadId, title, user: USER })
       if (entry === undefined) throw new Error(`heddle has no session ${threadId}.`)
+    },
+    onSessionsChange: (listener) => {
+      const abort = new AbortController()
+      const read = async () => {
+        for await (const _event of host.events({ signal: abort.signal })) listener()
+      }
+      read().catch((error: unknown) => {
+        if (!abort.signal.aborted) logger.warn('heddle stopped reading the session statuses.', { error })
+      })
+      return () => abort.abort()
     },
     shutdown: () => (stopping ??= stop()),
   }

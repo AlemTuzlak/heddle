@@ -62,6 +62,8 @@ export interface AppHost {
   /** Copies the session `threadId`, and gives the id of the copy. */
   fork(threadId: string): Promise<string>
   rename(threadId: string, title: string): Promise<void>
+  /** Calls `listener` when a session runs, waits, stops, or gets a title. Gives the function that stops it. */
+  onSessionsChange(listener: () => void): () => void
 }
 
 /** The part that has the keys: a pane, or the input (the composer, or the approval bar while it waits). */
@@ -392,6 +394,10 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   /** The time of the first ctrl+c, while a second one quits. */
   const quitAt = useKeyState<number | undefined>(undefined)
   const [sessions, setSessions] = useState<ReadonlyArray<SessionRow>>([])
+  /** The ids of the sessions that the user opened in this run. The header counts the ones that still work. */
+  const visited = useRef(new Set([first.threadId]))
+  /** The number of the newest list load. An older load can end after it. */
+  const loads = useRef(0)
   const [missingKey, setMissingKey] = useState<string>()
   const [choices, setChoices] = useState<Choices>()
   /** The rows that the composer and the approval bar take beyond one line. */
@@ -480,7 +486,10 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   }
 
   const refreshSessions = () => {
-    host.listSessions().then(setSessions, report)
+    const load = ++loads.current
+    host.listSessions().then((rows) => {
+      if (load === loads.current) setSessions(rows)
+    }, report)
   }
 
   const moveFocus = (next: Focus) => {
@@ -515,6 +524,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const switchTo = async (open: () => Promise<AppSession>) => {
     const previous = current.now()
     const next = await open()
+    visited.current.add(next.threadId)
     current.set(next)
     agentId.set(undefined)
     answered.set(new Set())
@@ -673,6 +683,9 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     refreshSessions()
   }, [host, session, status])
 
+  // The other sessions can run on, or wait for an answer, after a switch.
+  useEffect(() => host.onSessionsChange(refreshSessions), [host])
+
   // A command can save or remove a key, and its result comes as a new
   // message. So the app checks the key at the start and after each new message.
   useEffect(() => {
@@ -715,6 +728,12 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     isRunning,
     isQuitting: quitAt.value !== undefined,
   })
+  // The sessions that the user left in this run, and that still run or wait.
+  const left = sessions.filter((row) => row.id !== session.threadId && visited.current.has(row.id))
+  const others = {
+    waiting: left.filter((row) => row.status === 'needs-you').length,
+    running: left.filter((row) => row.status === 'live').length,
+  }
   const paletteItems = () =>
     suggest('/', commands).map((row) => ({
       label: row.label,
@@ -733,6 +752,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         context={context}
         cost={cost}
         missingKey={missingKey}
+        others={others}
       />
       <box
         ref={panesBox}

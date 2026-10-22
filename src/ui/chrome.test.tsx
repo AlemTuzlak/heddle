@@ -102,6 +102,16 @@ describe('Header', () => {
     expect(header.frame()).toContain('no key')
     expect(header.colorOf('no key')).toBe(color.weld)
   })
+
+  test('header counts the other sessions that wait or run', async () => {
+    await using header = await mount(
+      <Header model="opus 5.5" place="local" others={{ waiting: 2, running: 1 }} />,
+      { width: 100, height: 2 },
+    )
+    expect(header.frame()).toContain('◌ 2 sessions need you')
+    expect(header.frame()).toContain('● 1 session running')
+    expect(header.colorOf('◌ 2 sessions need you')).toBe(color.weld)
+  })
 })
 
 describe('Hints', () => {

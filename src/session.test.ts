@@ -215,6 +215,40 @@ test('a running session is live in the list', async () => {
   expect(statuses).toEqual(['live'])
 })
 
+test('a session runs on after the UI lets it go, and the listener hears its end', async () => {
+  using folder = tempFolder()
+  const reply = Promise.withResolvers<void>()
+  const opus = opusWith([
+    async () => {
+      await reply.promise
+      return { text: 'Done.' }
+    },
+  ])
+  await using heddle = await start({ folder: folder.path, opus })
+  let changed = Promise.withResolvers<void>()
+  const stop = heddle.onSessionsChange(() => changed.resolve())
+  const nextChange = async () => {
+    await changed.promise
+    changed = Promise.withResolvers()
+  }
+  const opened = await heddle.open()
+  await opened.view.send('hello')
+  await waitFor(opened.view, (state) => state.status === 'running')
+  // As on a switch to another session.
+  await opened.close()
+  expect((await heddle.listSessions()).map((row) => row.status)).toEqual(['live'])
+  reply.resolve()
+  let status = 'live'
+  while (status !== 'done') {
+    await nextChange()
+    status = (await heddle.listSessions())[0]?.status ?? 'none'
+  }
+  stop()
+  const { view } = await heddle.open(opened.threadId)
+  await view.ready
+  expect(textsOf(view.store.get())).toEqual(['hello', 'Done.'])
+})
+
 test('close and open again keeps the messages', async () => {
   using folder = tempFolder()
   const threadId = await runAndQuit(

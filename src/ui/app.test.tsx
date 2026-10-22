@@ -193,6 +193,7 @@ function createHost(rows: ReadonlyArray<SessionRow>, sessions: ReadonlyArray<Fak
     rename: async (threadId, title) => {
       calls.push({ action: 'rename', threadId, title })
     },
+    onSessionsChange: () => () => {},
   }
   return { host, calls }
 }
@@ -641,5 +642,34 @@ describe('App sessions', () => {
     expect(app.lineWith('◆ heddle')).toContain('Add input checks')
     expect(app.frame()).toContain('Check the input of add.')
     expect(app.frame()).not.toContain('The add test fails.')
+  })
+
+  test('the header counts the sessions that the user left and that still work', async () => {
+    const first = createSession('thread-1')
+    const second = createSession('thread-2')
+    const old: SessionRow = { ...sessionRow('thread-3', 'Old work'), status: 'needs-you' }
+    const rows = [sessionRow('thread-1', 'Fix the add test'), sessionRow('thread-2', 'Add input checks'), old]
+    const { host } = createHost(rows, [first, second])
+    let changed = () => {}
+    host.onSessionsChange = (listener) => {
+      changed = listener
+      return () => {}
+    }
+    await using app = await mountApp(first, { host })
+    // thread-3 waits, but the user did not open it in this run.
+    expect(app.lineWith('◆ heddle')).not.toContain('need')
+    await app.input((keys) => keys.pressKey('o', { ctrl: true }))
+    await app.input((keys) => {
+      keys.pressArrow('down')
+      keys.pressEnter()
+    })
+    // The session that the user left asks a question. The open session runs: it does not count.
+    rows[0] = { ...rows[0], status: 'needs-you' }
+    rows[1] = { ...rows[1], status: 'live' }
+    await app.input(() => changed())
+    await app.input(() => {})
+    const header = app.lineWith('◆ heddle')
+    expect(header).toContain('◌ 1 session needs you')
+    expect(header).not.toContain('running')
   })
 })

@@ -20,6 +20,13 @@ export interface HeaderProps {
   cost?: number
   /** The provider of the current model, when it has no API key. */
   missingKey?: string
+  /** The other sessions of this run that wait for an answer, or that run. */
+  others?: { waiting: number; running: number }
+}
+
+/** `1 session`, `2 sessions`. */
+function sessionCount(count: number) {
+  return count === 1 ? '1 session' : `${count} sessions`
 }
 
 /** Green when the folder is up to date, yellow while a copy runs, red on a conflict. */
@@ -58,6 +65,7 @@ function ContextMeter({ context }: { context: number }) {
  * The top row of heddle. From left to right:
  *
  * - `◆ heddle`, then the session title. A long title is cut.
+ * - The other sessions: `◌ 1 session needs you`, `● 2 sessions running`.
  * - The goal chip: `goal tests pass, round 2 of 20`.
  * - The model and the agent, then `no key` in yellow when `missingKey` is set.
  * - Where the tools run: `local`, or `docker` with the sync state.
@@ -87,6 +95,7 @@ export function Header({
   context,
   cost,
   missingKey,
+  others,
 }: HeaderProps) {
   const isSandbox = place === 'docker' && sync !== undefined
   return (
@@ -98,6 +107,16 @@ export function Header({
       <text flexGrow={1} flexShrink={1} fg={color.linen} wrapMode="none" truncate>
         {title ?? ''}
       </text>
+      {others !== undefined && others.waiting > 0 ? (
+        <text flexShrink={0} fg={color.weld} wrapMode="none">
+          {`◌ ${sessionCount(others.waiting)} ${others.waiting === 1 ? 'needs' : 'need'} you`}
+        </text>
+      ) : null}
+      {others !== undefined && others.running > 0 ? (
+        <text flexShrink={0} fg={color.indigo} wrapMode="none">
+          {`${glyph.dot} ${sessionCount(others.running)} running`}
+        </text>
+      ) : null}
       {goal ? (
         <text flexShrink={1} fg={color.weld} wrapMode="none" truncate>
           goal <span fg={color.muted}>{goalText(goal)}</span>
