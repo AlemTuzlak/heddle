@@ -371,6 +371,13 @@ describe('App layout', () => {
 })
 
 describe('App approvals', () => {
+  test('the header shows how full the context is', async () => {
+    // opus has a window of 1,000,000 tokens.
+    const fake = createSession('thread-1', { plugins: { 'tanstack/usage': { contextTokens: 410_000 } } })
+    await using app = await mountApp(fake, { size: WIDE })
+    expect(app.frame()).toContain('▰▰▰▰▱▱▱▱▱▱ 41%')
+  })
+
   test('y approves the waiting approval', async () => {
     const answers: Array<Answer> = []
     const fake = createSession('thread-1', {

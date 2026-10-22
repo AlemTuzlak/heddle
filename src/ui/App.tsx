@@ -17,7 +17,7 @@ import type { ChangesState, ChangesWatch } from '../state/changes'
 import { parseInput, suggest, type Input, type LocalAction } from '../state/commands'
 import { buildAgentRows, buildRows, layoutLines, type Row } from '../state/timeline'
 import { useView, useWatch, type ViewStore } from '../state/useView'
-import { padWidth, widest } from '../utils'
+import { isRecord, padWidth, widest } from '../utils'
 import { ApprovalBar } from './ApprovalBar'
 import { Changes } from './Changes'
 import { Composer } from './Composer'
@@ -368,6 +368,11 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const config = useView(view, (state) => state.config)
   const goal = useView(view, selectGoal)
   const cost = useView(view, (state) => state.usage?.total.cost)
+  // `usage()` keeps the input tokens of the latest model call as `contextTokens`.
+  const contextTokens = useView(view, (state) => {
+    const usage = state.plugins['tanstack/usage']
+    return isRecord(usage) && typeof usage.contextTokens === 'number' ? usage.contextTokens : undefined
+  })
   const changes = useWatch(session.changes)
   const syncWatch = useMemo(
     () => ({
@@ -379,6 +384,11 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const sync = useWatch(syncWatch)
 
   const model = settingText(config, MODEL_SETTING) ?? ''
+  const contextWindow = MODELS.find((choice) => choice.name === model)?.contextWindow
+  const context =
+    contextTokens === undefined || contextWindow === undefined
+      ? undefined
+      : Math.min(1, contextTokens / contextWindow)
   const counts = useMemo(() => countsByToolCall(changes), [changes])
   const rowOptions = useMemo(
     () => ({ model, root: session.root, counts }),
@@ -637,6 +647,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         agent={settingText(config, AGENT_SETTING)}
         place={session.place}
         sync={sync}
+        context={context}
         cost={cost}
         missingKey={missingKey}
       />

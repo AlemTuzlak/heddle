@@ -37,6 +37,12 @@ export interface ModelChoice {
   model: string
   /** The environment variable that can hold the key of the provider. */
   env: 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'XAI_API_KEY'
+  /**
+   * The size of the context window, in tokens, for the context meter.
+   * ponytail: copied from `context_window` in each adapter's `model-meta.ts`,
+   * because the adapters do not export it. Read it from them when they do.
+   */
+  contextWindow: number
 }
 
 // `as const` keeps each model id as it is: the adapter factories take only
@@ -47,36 +53,42 @@ const CHOICES = [
     provider: 'anthropic',
     model: 'claude-opus-5-5',
     env: 'ANTHROPIC_API_KEY',
+    contextWindow: 1_000_000,
   },
   {
     name: 'sonnet',
     provider: 'anthropic',
     model: 'claude-sonnet-5-5',
     env: 'ANTHROPIC_API_KEY',
+    contextWindow: 1_000_000,
   },
   {
     name: 'haiku',
     provider: 'anthropic',
     model: 'claude-haiku-5-5',
     env: 'ANTHROPIC_API_KEY',
+    contextWindow: 1_000_000,
   },
   {
     name: 'gpt',
     provider: 'openai',
     model: 'gpt-6.1-sol',
     env: 'OPENAI_API_KEY',
+    contextWindow: 1_050_000,
   },
   {
     name: 'luna',
     provider: 'openai',
     model: 'gpt-6-luna',
     env: 'OPENAI_API_KEY',
+    contextWindow: 1_050_000,
   },
   {
     name: 'grok',
     provider: 'grok',
     model: 'grok-4.7',
     env: 'XAI_API_KEY',
+    contextWindow: 500_000,
   },
 ] as const satisfies ReadonlyArray<ModelChoice>
 
@@ -87,7 +99,7 @@ const CHOICES = [
  * @example
  * ```ts
  * const choice = MODELS.find((each) => each.name === 'gpt')
- * // { name: 'gpt', provider: 'openai', model: 'gpt-6.1-sol', env: 'OPENAI_API_KEY' }
+ * // { name: 'gpt', provider: 'openai', model: 'gpt-6.1-sol', env: 'OPENAI_API_KEY', contextWindow: 1_050_000 }
  * ```
  */
 export const MODELS: ReadonlyArray<ModelChoice> = CHOICES
