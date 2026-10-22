@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { isRecord } from './utils'
+import { isRecord, messageOf } from './utils'
 import type { McpServerConfig } from '@tanstack/ai-mcp/harness'
 
 /** The settings of heddle. {@link loadConfig} reads them from the config files. */
@@ -355,8 +355,4 @@ function oneOf<T extends string>(
 /** The error for one field of a config file: `<file>: <field> <problem>`. */
 function badField(file: string, field: string, problem: string) {
   return new Error(`${file}: ${field} ${problem}`)
-}
-
-function messageOf(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }

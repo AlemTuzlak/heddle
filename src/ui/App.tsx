@@ -17,7 +17,7 @@ import type { ChangesState, ChangesWatch } from '../state/changes'
 import { parseInput, suggest, type Input, type LocalAction } from '../state/commands'
 import { buildAgentRows, buildRows, layoutLines, type Row } from '../state/timeline'
 import { useView, useWatch, type ViewStore } from '../state/useView'
-import { isRecord, padWidth, widest } from '../utils'
+import { isRecord, messageOf, padWidth, widest } from '../utils'
 import { ApprovalBar } from './ApprovalBar'
 import { Changes } from './Changes'
 import { Composer } from './Composer'
@@ -185,10 +185,6 @@ function helpText(commands: ReadonlyArray<ViewCommand>) {
   return ['Commands:', ...lines].join('\n')
 }
 
-/** The text of an error. */
-function messageOf(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /**
  * `approval`, with actions that also call `onAnswer`. The view keeps an

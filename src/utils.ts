@@ -1,5 +1,10 @@
 // Small helpers that the state and UI modules share. They know nothing about heddle.
 
+/** The message of an error, or the text of any other thrown value. */
+export function messageOf(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** True for a JSON object: not `null`, and not an array. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

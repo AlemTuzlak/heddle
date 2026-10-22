@@ -13,6 +13,7 @@ import { DEFAULT_IMAGE, loadConfig, type HeddleConfig } from './config'
 import { createFileLogger, startHeddle } from './session'
 import { App } from './ui/App'
 import { createSyntaxStyle } from './ui/theme'
+import { messageOf } from './utils'
 
 /** The flags of the `heddle` command. {@link parseFlags} reads them. */
 export interface Flags {
@@ -95,10 +96,6 @@ export function parseFlags(argv: ReadonlyArray<string>) {
   }
 }
 
-/** The text of an error. */
-function messageOf(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /**
  * Prints `<title>: <message>` as one line on stderr, and writes the error
