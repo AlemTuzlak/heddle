@@ -196,43 +196,43 @@ describe('Composer popup', () => {
     await screen.input((keys) => keys.typeText('/'))
     const rows = rowsOf(screen.frame())
     const input = rows.findIndex((row) => row.includes('› /'))
-    // Just above the input: the popup with the first 6 of the 12 commands,
-    // over the text above the composer.
+    // Just above the input: the popup with the first 6 of the 11 commands,
+    // over the text above the composer. The connect commands are one row.
     expect(rows[input - 10]).toBe(FILLER)
     expect(rows[input - 9]).toMatch(/^╭─+╮$/)
     expect(rows.slice(input - 8, input - 2)).toEqual([
       expect.stringMatching(/^│ ▎ \/compact +Summarize the conversation to save tokens +│$/),
-      expect.stringMatching(/^│ {3}\/connect anthropic +Connect Anthropic with your own key +│$/),
-      expect.stringMatching(/^│ {3}\/connect openai +Connect OpenAI with your own key +│$/),
+      expect.stringMatching(/^│ {3}\/connect +Connect a model provider or a server +│$/),
       expect.stringMatching(/^│ {3}\/exit +Quit heddle +│$/),
       expect.stringMatching(/^│ {3}\/goal +Work until a goal is met +│$/),
       expect.stringMatching(/^│ {3}\/help +Show the commands +│$/),
+      expect.stringMatching(/^│ {3}\/mode +Show or switch the mode +│$/),
     ])
     expect(rows[input - 2]).toMatch(/^╰─+╯$/)
-    expect(screen.frame()).not.toContain('/mode')
+    expect(screen.frame()).not.toContain('/model')
   })
 
   test('arrows move the selection', async () => {
     await using screen = await mountComposer()
     await screen.input(async (keys) => {
-      // `/co` has 3 rows. Up on the first row and down on the last row do nothing.
+      // `/co` has 2 rows. Up on the first row and down on the last row do nothing.
       await keys.typeText('/co')
       keys.pressArrow('up')
       keys.pressArrow('down')
       keys.pressArrow('down')
-      keys.pressArrow('down')
       keys.pressArrow('up')
+      keys.pressArrow('down')
     })
-    expect(screen.lineWith('▎')).toContain('▎ /connect anthropic')
+    expect(screen.lineWith('▎')).toContain('▎ /connect')
   })
 
   test('the selection scrolls past 6 rows', async () => {
     await using screen = await mountComposer()
     await screen.input(async (keys) => {
       await keys.typeText('/')
-      for (let step = 0; step < 11; step += 1) keys.pressArrow('down')
+      for (let step = 0; step < 10; step += 1) keys.pressArrow('down')
     })
-    // The last of the 12 commands is selected, and the first ones are gone.
+    // The last of the 11 commands is selected, and the first ones are gone.
     expect(screen.lineWith('▎')).toContain('▎ /todos')
     expect(screen.frame()).not.toContain('/compact')
   })
@@ -244,10 +244,25 @@ describe('Composer popup', () => {
       await keys.typeText('/con')
       keys.pressTab()
     })
-    expect(screen.lineWith('›')).toMatch(/^│ › \/connect anthropic +│$/)
+    expect(screen.lineWith('›')).toMatch(/^│ › \/connect +│$/)
     expect(screen.sent).toEqual([])
     await screen.input((keys) => keys.pressEnter())
-    expect(screen.sent).toEqual(['/connect anthropic'])
+    expect(screen.sent).toEqual(['/connect'])
+  })
+
+  test('enter on a command that needs text puts it in the input', async () => {
+    await using screen = await mountComposer()
+    await screen.input(async (keys) => {
+      await keys.typeText('/go')
+      keys.pressEnter()
+    })
+    expect(screen.sent).toEqual([])
+    expect(screen.lineWith('›')).toMatch(/^│ › \/goal +│$/)
+    await screen.input(async (keys) => {
+      await keys.typeText('tests pass')
+      keys.pressEnter()
+    })
+    expect(screen.sent).toEqual(['/goal tests pass'])
   })
 
   test('enter runs the selected command at once', async () => {
@@ -298,10 +313,10 @@ describe('Composer popup', () => {
   test('the popup hides after a space', async () => {
     await using screen = await mountComposer()
     await screen.input((keys) => keys.typeText('/connect'))
-    expect(screen.frame()).toContain('Connect OpenAI with your own key')
-    // `/connect a` still matches `/connect anthropic`, but the name ends at the space.
+    expect(screen.frame()).toContain('Connect a model provider or a server')
+    // The name ends at the space.
     await screen.input((keys) => keys.typeText(' a'))
-    expect(screen.frame()).not.toContain('Connect Anthropic with your own key')
+    expect(screen.frame()).not.toContain('Connect a model provider or a server')
     await screen.input((keys) => keys.pressEnter())
     expect(screen.sent).toEqual(['/connect a'])
   })

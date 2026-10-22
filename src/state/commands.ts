@@ -20,11 +20,14 @@ export type Input =
 
 /** One row of the `/` popup of the composer. */
 export interface Suggestion {
-  /** The text of the row, for example `/connect anthropic`. */
+  /** The text of the row, for example `/model`. */
   label: string
   /** What the command does. */
   detail: string
-  /** The full text for the composer. It ends with a space when the command takes input. */
+  /**
+   * The full text for the composer. It ends with a space when the command
+   * takes input: it has an input schema, or its description shows a use such as `/goal <goal>`.
+   */
   insert: string
 }
 
@@ -54,9 +57,15 @@ const LOCAL_ROWS = LOCAL_COMMANDS.map(({ name, detail }) => ({
 /**
  * The model providers and the MCP servers name their commands
  * `connect:<id>` and `disconnect:<id>`. The user types them as
- * `/connect <id>` and `/disconnect <id>`.
+ * `/connect <id>` and `/disconnect <id>`, or picks the id from a list.
  */
 const TARGET_PREFIXES: ReadonlyArray<string> = ['connect', 'disconnect']
+
+/** The one row of each prefix in the `/` popup. The list of ids opens on enter. */
+const TARGET_DETAILS: Record<string, string> = {
+  connect: 'Connect a model provider or a server',
+  disconnect: 'Remove a saved key or sign-in',
+}
 
 /**
  * It turns one line of the composer into an {@link Input}.
@@ -66,7 +75,8 @@ const TARGET_PREFIXES: ReadonlyArray<string> = ['connect', 'disconnect']
  *   name wins over a plugin command with the same name.
  * - `/connect <id>` runs the command `connect:<id>`, and `/disconnect <id>`
  *   runs `disconnect:<id>`. An id with no command is an error that lists
- *   the ids.
+ *   the ids. `/connect` alone is the command `connect` with no input: the
+ *   app shows the ids to pick one.
  * - `/<name> <text>` runs the plugin command `name` with the input `<text>`.
  *   The name ends at the first space, tab, or new line.
  * - Any other `/<name>` is the error `Unknown command /<name>. Type /help.`
@@ -88,12 +98,12 @@ export function parseInput(line: string, commands: ReadonlyArray<ViewCommand>) {
 }
 
 /**
- * It gives the rows of the `/` popup for the text of the composer. The rows
- * are the plugin commands and the local commands whose label starts with
- * `text`, sorted by label. Text without a `/` at the start gives no rows.
+ * It gives the rows of the `/` popup for the text of the composer. First the
+ * rows whose label starts with `text`, then the rows whose name has `text`
+ * in it, each sorted by label. Text without a `/` at the start gives no rows.
  *
- * - `connect:<id>` shows as `/connect <id>`, and `disconnect:<id>` shows as
- *   `/disconnect <id>`.
+ * - The `connect:<id>` commands show as one `/connect` row, and the
+ *   `disconnect:<id>` commands as one `/disconnect` row.
  * - A plugin command with a local name does not show, because the local
  *   command runs.
  * - `insert` ends with a space when the command has an input schema.
@@ -103,8 +113,8 @@ export function parseInput(line: string, commands: ReadonlyArray<ViewCommand>) {
  *
  * @example
  * ```ts
- * suggest('/connect a', commands)
- * // [{ label: '/connect anthropic', detail: 'Connect Anthropic with your own key', insert: '/connect anthropic' }]
+ * suggest('/del', commands)
+ * // [{ label: '/model', detail: 'Show or switch the model', insert: '/model' }]
  * ```
  */
 export function suggest(text: string, commands: ReadonlyArray<ViewCommand>) {
@@ -113,11 +123,23 @@ export function suggest(text: string, commands: ReadonlyArray<ViewCommand>) {
   const shown = commands.filter(
     (command) => !LOCAL_COMMANDS.some((local) => local.name === command.name),
   )
+  const plain = shown.filter(
+    (command) => !TARGET_PREFIXES.some((prefix) => command.name.startsWith(`${prefix}:`)),
+  )
+  const targets = TARGET_PREFIXES.filter((prefix) => targetsOf(prefix, commands).length > 0).map(
+    (prefix) => ({ label: `/${prefix}`, detail: TARGET_DETAILS[prefix] ?? '', insert: `/${prefix}` }),
+  )
   const rows: Array<Suggestion> = typed.startsWith('/')
-    ? [...shown.map(rowOf), ...LOCAL_ROWS]
+    ? [...plain.map(rowOf), ...targets, ...LOCAL_ROWS]
     : []
-  const matches = rows.filter((row) => row.label.startsWith(typed))
-  return matches.sort((a, b) => a.label.localeCompare(b.label, 'en'))
+  const byLabel = (a: Suggestion, b: Suggestion) => a.label.localeCompare(b.label, 'en')
+  const starts = rows.filter((row) => row.label.startsWith(typed)).sort(byLabel)
+  // `/del` also finds `/model`. A bare `/` has no text to find.
+  const word = typed.slice(1)
+  const has = rows.filter(
+    (row) => word !== '' && !row.label.startsWith(typed) && row.label.slice(1).includes(word),
+  )
+  return [...starts, ...has.sort(byLabel)]
 }
 
 /** It gives the {@link Input} of a line that starts with `/`. */
@@ -141,11 +163,11 @@ function slashInput(text: string, commands: ReadonlyArray<ViewCommand>) {
     return { kind: 'command', name, input: rest } satisfies Input
   }
   const targets = isTargetPrefix ? targetsOf(name, commands) : []
+  // The app shows the ids to pick one.
+  if (targets.length > 0 && rest === '') return { kind: 'command', name } satisfies Input
   if (targets.length > 0) {
     const hint = `Type /${name} and one of these targets: ${targets.join(', ')}.`
-    const message =
-      rest === '' ? hint : `Unknown ${name} target "${rest}". ${hint}`
-    return { kind: 'error', message } satisfies Input
+    return { kind: 'error', message: `Unknown ${name} target "${rest}". ${hint}` } satisfies Input
   }
   return {
     kind: 'error',
@@ -163,13 +185,9 @@ function targetsOf(prefix: string, commands: ReadonlyArray<ViewCommand>) {
 /** It gives the row of a plugin command in the `/` popup. */
 function rowOf(command: ViewCommand) {
   const { name, description: detail } = command
-  const prefix = TARGET_PREFIXES.find((entry) => name.startsWith(`${entry}:`))
-  if (prefix !== undefined) {
-    // The id goes to the end of the line, so no input can come after it.
-    const label = `/${prefix} ${name.slice(prefix.length + 1)}`
-    return { label, detail, insert: label }
-  }
   const label = `/${name}`
-  const takesInput = command.input !== undefined
+  // ponytail: some commands take text with no input schema, such as `/goal`.
+  // Their description shows the use, as in `/goal <goal>`.
+  const takesInput = command.input !== undefined || /\/\S+ </.test(detail)
   return { label, detail, insert: takesInput ? `${label} ` : label }
 }

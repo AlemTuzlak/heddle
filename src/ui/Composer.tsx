@@ -54,6 +54,9 @@ interface Picked {
   index: number
 }
 
+/** No command opens a list. */
+const NO_LISTS: ReadonlySet<string> = new Set()
+
 /** True while the user types a command name: the text starts with `/`, and has no space, tab, or new line yet. */
 function isCommandName(text: string) {
   return /^\/\S*$/.test(text)
@@ -151,6 +154,7 @@ function Popup({ rows, index, labelWidth, width }: {
  * @param commands The commands of the session, from `view.store.get().commands`.
  * @param focused True while the composer has the keys.
  * @param placeholder The text that shows while the input is empty.
+ * @param lists The names of the commands that open a list of choices, such as `model`.
  * @param onSubmit Called with the text that the user sends.
  * @example
  * <Composer
@@ -160,10 +164,11 @@ function Popup({ rows, index, labelWidth, width }: {
  *   onSubmit={(text) => run(parseInput(text, commands))}
  * />
  */
-export function Composer({ commands, focused, placeholder, onSubmit }: {
+export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onSubmit }: {
   commands: ReadonlyArray<ViewCommand>
   focused: boolean
   placeholder?: string
+  lists?: ReadonlySet<string>
   onSubmit(text: string): void
 }) {
   const terminal = useTerminalDimensions()
@@ -212,7 +217,12 @@ export function Composer({ commands, focused, placeholder, onSubmit }: {
     if (row === undefined) return
     if (SEND_KEYS.has(key.name)) {
       key.preventDefault()
-      // Enter runs the selected command at once. Tab completes it, to type its input.
+      // A command that needs text goes in the input, such as `/goal `. Enter
+      // runs the others at once, and a command with a list opens its list.
+      if (row.insert.endsWith(' ') && !lists.has(row.label.slice(1))) {
+        complete(row.insert)
+        return
+      }
       onSubmit(row.insert.trim())
       field.clear()
       return

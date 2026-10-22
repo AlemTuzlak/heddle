@@ -1,7 +1,12 @@
 // The app shell of heddle: it puts the panes together and routes the keys.
 import type { BoxRenderable, SyntaxStyle } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
-import { selectGoal, type Goal, type PermissionRule } from '@tanstack/ai-harness/plugins'
+import {
+  selectGoal,
+  type Goal,
+  type PermissionRule,
+  type ProviderKeyStatus,
+} from '@tanstack/ai-harness/plugins'
 import type {
   Approval,
   SessionView,
@@ -51,6 +56,8 @@ export interface AppSession {
   missingKey(): Promise<string | undefined>
   /** The rules that `always` answers saved, in the order of `/permissions forget <n>`. */
   permissionRules(): Promise<ReadonlyArray<PermissionRule>>
+  /** The model providers, and where the key of each comes from. */
+  providerKeys(): Promise<ReadonlyArray<ProviderKeyStatus>>
   close(): Promise<void>
 }
 
@@ -88,6 +95,15 @@ type Overlay = 'sessions' | 'palette' | 'choices'
 interface Choices {
   title: string
   items: ReadonlyArray<PaletteItem>
+  /** The notice when there is nothing to pick. */
+  empty?: string
+}
+
+/** Where the key of a provider comes from, for the `/connect` choices. */
+const KEY_STATES: Record<ProviderKeyStatus['state'], string> = {
+  connected: 'connected',
+  env: 'key from the environment',
+  missing: 'no key',
 }
 
 /** Under this many columns, one pane shows at a time. */
@@ -555,7 +571,8 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   /**
    * The choices of the command `name` of `target`, when it has some: the
    * values of the select setting with the same name (`/model`, `/mode`,
-   * `/agent`), or the modes and the saved rules (`/permissions`).
+   * `/agent`), the modes and the saved rules (`/permissions`), or the
+   * providers (`/connect`, `/disconnect`).
    */
   const choicesFor = async (target: AppSession, name: string) => {
     const { config } = target.view.store.get()
@@ -574,6 +591,35 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
       })
       const items = [...settingChoices(config, 'mode', runWith('mode')), ...forget]
       const picked: Choices = { title: 'Permissions', items }
+      return picked
+    }
+    if (name === 'connect' || name === 'disconnect') {
+      const keys = await target.providerKeys()
+      const isConnect = name === 'connect'
+      const runTarget = (id: string) => () => {
+        target.view.runCommand({ name: `${name}:${id}` }).catch(report)
+      }
+      const listed = isConnect ? keys : keys.filter((key) => key.state === 'connected')
+      const providers = listed.map((key) => {
+        const item: PaletteItem = {
+          label: key.label,
+          detail: isConnect ? KEY_STATES[key.state] : 'saved key',
+          run: runTarget(key.id),
+        }
+        return item
+      })
+      // The other targets, such as an MCP server that signs in.
+      const known = new Set(keys.map((key) => key.id))
+      const others = target.view.store.get().commands.flatMap((command) => {
+        const id = command.name.slice(name.length + 1)
+        if (!command.name.startsWith(`${name}:`) || known.has(id)) return []
+        const item: PaletteItem = { label: id, detail: command.description, run: runTarget(id) }
+        return [item]
+      })
+      const items = [...providers, ...others]
+      const picked: Choices = isConnect
+        ? { title: 'Connect', items }
+        : { title: 'Disconnect', items, empty: 'You have no saved keys. /connect saves one.' }
       return picked
     }
     const items = settingChoices(config, name, runWith(name))
@@ -599,6 +645,10 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
       case 'command': {
         // A command with no input that has choices shows them, to pick one.
         const picked = input.input === undefined ? await choicesFor(target, input.name) : undefined
+        if (picked !== undefined && picked.items.length === 0) {
+          target.view.notice({ text: picked.empty ?? `/${input.name} has nothing to pick.` })
+          return
+        }
         if (picked !== undefined) {
           setChoices(picked)
           overlay.set('choices')
@@ -728,6 +778,11 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     isRunning,
     isQuitting: quitAt.value !== undefined,
   })
+  // The commands that open a list on enter: each select setting, and `/permissions`.
+  const lists = new Set([
+    ...config.filter((entry) => entry.option.type === 'select').map((entry) => entry.key),
+    'permissions',
+  ])
   // The sessions that the user left in this run, and that still run or wait.
   const left = sessions.filter((row) => row.id !== session.threadId && visited.current.has(row.id))
   const others = {
@@ -825,6 +880,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         commands={commands}
         focused={isFocusable && !isWaiting && focus.value === 'input'}
         placeholder={PLACEHOLDER}
+        lists={lists}
         onSubmit={submit}
       />
       <Hints hints={hints} />

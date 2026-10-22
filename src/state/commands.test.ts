@@ -74,12 +74,8 @@ describe('parseInput', () => {
     })
   })
 
-  test('/connect alone lists the targets', () => {
-    expect(parseInput('/connect', COMMANDS)).toEqual({
-      kind: 'error',
-      message:
-        'Type /connect and one of these targets: anthropic, openai, linear.',
-    })
+  test('/connect alone is the command connect, so the app shows the targets', () => {
+    expect(parseInput('/connect', COMMANDS)).toEqual({ kind: 'command', name: 'connect' })
   })
 
   test('/disconnect anthropic gives disconnect:anthropic', () => {
@@ -151,7 +147,7 @@ describe('parseInput', () => {
 })
 
 describe('suggest', () => {
-  test('suggest filters by prefix', () => {
+  test('suggest filters by prefix, and shows one row for the connect targets', () => {
     expect(suggest('/co', COMMANDS)).toEqual([
       {
         label: '/compact',
@@ -159,21 +155,27 @@ describe('suggest', () => {
         insert: '/compact',
       },
       {
-        label: '/connect anthropic',
-        detail: 'Connect Anthropic with your own key',
-        insert: '/connect anthropic',
+        label: '/connect',
+        detail: 'Connect a model provider or a server',
+        insert: '/connect',
       },
+      // `disconnect` has `co` in it.
       {
-        label: '/connect linear',
-        detail: 'Sign in to linear',
-        insert: '/connect linear',
-      },
-      {
-        label: '/connect openai',
-        detail: 'Connect OpenAI with your own key',
-        insert: '/connect openai',
+        label: '/disconnect',
+        detail: 'Remove a saved key or sign-in',
+        insert: '/disconnect',
       },
     ])
+  })
+
+  test('a name with the text in it comes after the names that start with it', () => {
+    expect(suggest('/m', COMMANDS).map((row) => row.label)).toEqual(['/model', '/compact'])
+    expect(suggest('/del', COMMANDS).map((row) => row.label)).toEqual(['/model'])
+  })
+
+  test('a command whose description shows its text gets a trailing space', () => {
+    expect(suggest('/goal', COMMANDS)[0]?.insert).toBe('/goal ')
+    expect(suggest('/todos', COMMANDS)[0]?.insert).toBe('/todos')
   })
 
   test('a command with an input schema gets a trailing space', () => {

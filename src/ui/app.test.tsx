@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { SyntaxStyle } from '@opentui/core'
 import { useRenderer } from '@opentui/react'
-import type { PermissionRule } from '@tanstack/ai-harness/plugins'
+import type { PermissionRule, ProviderKeyStatus } from '@tanstack/ai-harness/plugins'
 import type { FileChange } from '@tanstack/ai-harness/plugins/coding'
 import type {
   AgentPart,
@@ -44,7 +44,14 @@ const COMMANDS: ReadonlyArray<ViewCommand> = [
     owner: 'tanstack/goal',
     input: { type: 'string' },
   },
-  { name: 'model', description: 'Show or switch the model', owner: 'tanstack/model-picker' },
+  {
+    name: 'disconnect:anthropic',
+    description: 'Remove your Anthropic key',
+    owner: 'tanstack/provider-keys',
+  },
+  { name: 'connect:linear', description: 'Sign in to linear', owner: 'tanstack/mcp' },
+  // With a use in its description, as `/model <name>`: the list still opens on enter.
+  { name: 'model', description: 'Show or switch the model: /model <name>', owner: 'tanstack/model-picker' },
   { name: 'permissions', description: 'List the saved rules', owner: 'tanstack/permissions' },
 ]
 
@@ -117,7 +124,12 @@ function viewState(threadId: string, fields: Partial<SessionViewState>) {
 function createSession(
   threadId: string,
   fields: Partial<SessionViewState> = {},
-  options: { missingKey?: string; changes?: ChangesState; rules?: ReadonlyArray<PermissionRule> } = {},
+  options: {
+    missingKey?: string
+    changes?: ChangesState
+    rules?: ReadonlyArray<PermissionRule>
+    keys?: ReadonlyArray<ProviderKeyStatus>
+  } = {},
 ) {
   let state = viewState(threadId, fields)
   const listeners = new Set<() => void>()
@@ -163,6 +175,7 @@ function createSession(
     changes: { get: () => changes, subscribe: () => () => {}, stop: () => {} },
     missingKey: async () => options.missingKey,
     permissionRules: async () => options.rules ?? [],
+    providerKeys: async () => options.keys ?? [],
     close: async () => {
       closes += 1
     },
@@ -448,6 +461,39 @@ describe('App pickers', () => {
       keys.pressEnter()
     })
     expect(fake.calls).toEqual([{ action: 'command', name: 'permissions', input: 'forget 1' }])
+  })
+
+  test('/connect lists the providers with their keys, and enter connects one', async () => {
+    const keys: Array<ProviderKeyStatus> = [
+      { id: 'anthropic', label: 'Anthropic', state: 'connected' },
+      { id: 'openai', label: 'OpenAI', state: 'missing' },
+    ]
+    const fake = createSession('thread-1', {}, { keys })
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/connect')
+      keys.pressEnter()
+    })
+    expect(app.lineWith('Anthropic')).toContain('connected')
+    expect(app.lineWith('OpenAI')).toContain('no key')
+    // An MCP server that signs in shows after the providers.
+    expect(app.lineWith('linear')).toContain('Sign in to linear')
+    await app.input((keys) => {
+      keys.pressArrow('down')
+      keys.pressEnter()
+    })
+    expect(fake.calls).toEqual([{ action: 'command', name: 'connect:openai', input: undefined }])
+  })
+
+  test('/disconnect with no saved key says so', async () => {
+    const keys: Array<ProviderKeyStatus> = [{ id: 'anthropic', label: 'Anthropic', state: 'env' }]
+    const fake = createSession('thread-1', {}, { keys })
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/disconnect')
+      keys.pressEnter()
+    })
+    expect(fake.calls).toEqual([{ action: 'notice', text: 'You have no saved keys. /connect saves one.' }])
   })
 
   test('/help opens the command palette', async () => {

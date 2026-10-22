@@ -27,6 +27,9 @@ import type { HarnessPlugin } from '@tanstack/ai-harness'
 import type { WorkspaceBinder } from '@tanstack/ai-harness/plugins/coding'
 import type { HeddleConfig } from './config'
 
+/** The model providers whose key `/connect` saves. */
+export const KEY_PROVIDERS = [anthropicByok, openaiByok, grokByok]
+
 /** A model that heddle can use. */
 export interface ModelChoice {
   /** The name in `/model <name>` and in the config, such as `'opus'`. */
@@ -261,7 +264,7 @@ export function createHarness(options: {
     adapter: main,
     systemPrompts: [SYSTEM_PROMPT],
     plugins: () => [
-      providerKeys({ providers: [anthropicByok, openaiByok, grokByok] }),
+      providerKeys({ providers: KEY_PROVIDERS }),
       modelPicker({ choices: adapters, default: choice.name }),
       // The rules see the paths where the tools work.
       permissions({ root: place === 'docker' ? CONTAINER_ROOT : root }),

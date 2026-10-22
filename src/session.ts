@@ -6,9 +6,13 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readCredential } from '@tanstack/ai/byok/server'
 import { createHarnessHost } from '@tanstack/ai-harness'
-import { listSavedPermissions, type PermissionRule } from '@tanstack/ai-harness/plugins'
+import {
+  listSavedPermissions,
+  type PermissionRule,
+  type ProviderKeyStatus,
+} from '@tanstack/ai-harness/plugins'
 import { createSessionView } from '@tanstack/ai-harness/view'
-import { MODELS, createHarness, type ModelChoice } from './harness'
+import { KEY_PROVIDERS, MODELS, createHarness, type ModelChoice } from './harness'
 import { CONTAINER_ROOT, createSandbox } from './sandbox'
 import { watchChanges } from './state/changes'
 import { openSqliteStores } from './store/sqlite'
@@ -45,6 +49,11 @@ export interface OpenSession {
   missingKey(): Promise<string | undefined>
   /** The rules that `always` answers saved for the tools root, in the order of `/permissions forget <n>`. */
   permissionRules(): Promise<ReadonlyArray<PermissionRule>>
+  /**
+   * The model providers, and where the key of each comes from: `/connect`
+   * saved it (`connected`), an environment variable (`env`), or none (`missing`).
+   */
+  providerKeys(): Promise<ReadonlyArray<ProviderKeyStatus>>
   /** Stops the change watch and the view, and lets the session go. A second call does nothing. */
   close(): Promise<void>
 }
@@ -367,6 +376,16 @@ export async function startHeddle(options: {
       },
       // `permissions()` saves the rules for the root of the tools.
       permissionRules: () => listSavedPermissions(stores.persistence.stores, toolsRoot),
+      providerKeys: () =>
+        Promise.all(
+          KEY_PROVIDERS.map(async ({ id, label, env = [] }) => {
+            const saved = await readCredential(stores.credentials, { userId: USER.id }, id)
+            const hasEnv = env.some((name) => (process.env[name] ?? '') !== '')
+            const state = saved?.type === 'api_key' ? 'connected' : hasEnv ? 'env' : 'missing'
+            const status: ProviderKeyStatus = { id, label, state }
+            return status
+          }),
+        ),
       close: async () => {
         // A session that is closed already is not in the set.
         if (!opened.delete(openSession)) return

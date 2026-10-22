@@ -129,8 +129,8 @@ In the input:
 | `enter` | Send. |
 | `shift+enter` or `ctrl+j` | Add a line. |
 | `/` | Show the commands that start with what you type. |
-| `↑` `↓`, then `enter` | Pick a command, and run it. |
-| `tab` | Put the selected command in the input, to type more after it, such as `/goal <text>`. |
+| `↑` `↓`, then `enter` | Pick a command, and run it. A command that needs text, such as `/goal`, goes in the input, so you can type the text. |
+| `tab` | Put the selected command in the input, to type more after it. |
 | `esc` | Close the list of commands. |
 
 When heddle asks for approval:
@@ -199,7 +199,7 @@ No API key for anthropic. Type /connect anthropic, or set ANTHROPIC_API_KEY.
 
 Give heddle a key in one of two ways:
 
-- Type `/connect anthropic`, `/connect openai`, or `/connect grok`. Paste the key, and press `enter`. heddle keeps the key for all your projects.
+- Type `/connect`, and pick the provider from the list. The list shows which providers have a key. Or type `/connect anthropic`, `/connect openai`, or `/connect grok`. Paste the key, and press `enter`. heddle keeps the key for all your projects.
 - Set the environment variable of the provider before you start heddle.
 
 | Provider | `/model` names (model ids) | `/connect` | Environment variable |
@@ -210,7 +210,7 @@ Give heddle a key in one of two ways:
 
 - Without `model` in a [config file](#config-files), a new session uses the first model of this table whose provider has a key.
 - `/model` shows the models, and marks the model of the session with `(current)`. Pick one, or type `/model sonnet`. The new model applies from the next turn.
-- `/keys` shows where each key comes from. `/disconnect <provider>` removes a saved key.
+- `/keys` shows where each key comes from. `/disconnect` lists the saved keys, and removes the key that you pick.
 - heddle uses a small model for titles, for the summaries of `/compact`, and for goal checks. It is `haiku`, `luna`, or `grok`: the small model of the provider of the `model` in your config. If you have only an OpenAI key or an xAI key, set `model` in a config file.
 
 ## Config files
@@ -325,7 +325,7 @@ Linear and Notion use an OAuth sign-in:
 ```
 
 1. Start heddle.
-2. Type `/connect linear`.
+2. Type `/connect linear`, or type `/connect` and pick `linear`.
 3. Sign in on the page that heddle opens in your browser.
 4. Type `/mcp`. It shows each server and its status.
 
