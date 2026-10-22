@@ -17,7 +17,8 @@ import { createSyntaxStyle } from './ui/theme'
 import type { FakeResponseStep } from '@tanstack/ai/testing'
 import type { HeddleConfig } from './config'
 
-const CONFIG: HeddleConfig = { sandbox: false, codeMode: false, mcp: {} }
+// The tests script a fake opus, so the config names it. Else the keys of the shell pick the model.
+const CONFIG: HeddleConfig = { model: 'opus', sandbox: false, codeMode: false, mcp: {} }
 
 /** The App with a syntax style of its own renderer, as `main` makes it. */
 function Stage({ styles, ...props }: Omit<ComponentProps<typeof App>, 'syntaxStyle'> & { styles: Array<SyntaxStyle> }) {

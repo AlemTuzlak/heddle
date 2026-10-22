@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { readCredential } from '@tanstack/ai/byok/server'
 import { createHarnessHost } from '@tanstack/ai-harness'
 import { createSessionView } from '@tanstack/ai-harness/view'
-import { MODELS, createHarness } from './harness'
+import { MODELS, createHarness, type ModelChoice } from './harness'
 import { CONTAINER_ROOT, createSandbox } from './sandbox'
 import { watchChanges } from './state/changes'
 import { openSqliteStores } from './store/sqlite'
@@ -236,7 +236,21 @@ export async function startHeddle(options: {
     logger,
     ownership: OWNERSHIP,
   })
-  const model = config.model ?? MODELS[0].name
+  /** True when the provider of `choice` has a key: in the environment, or saved by `/connect`. */
+  const hasKey = async (choice: ModelChoice) => {
+    if ((process.env[choice.env] ?? '') !== '') return true
+    const saved = await readCredential(stores.credentials, { userId: USER.id }, choice.provider)
+    return saved?.type === 'api_key'
+  }
+  /**
+   * The model of the config, else the first model whose provider has a key.
+   * With no key at all, the first model: the first message then says how to add a key.
+   */
+  const firstWithKey = async () => {
+    for (const choice of MODELS) if (await hasKey(choice)) return choice.name
+    return MODELS[0].name
+  }
+  const model = config.model ?? (await firstWithKey())
   const defaultPlace = config.sandbox === false ? 'local' : 'docker'
   /** The sessions that the UI has open now. */
   const opened = new Set<OpenSession>()
@@ -341,11 +355,7 @@ export async function startHeddle(options: {
         if (choice === undefined) {
           throw new Error(`heddle does not know the model of this session: ${String(name)}.`)
         }
-        const hasEnvKey = (process.env[choice.env] ?? '') !== ''
-        if (hasEnvKey) return undefined
-        // The same read as the session: the key that `/connect` saved for the user.
-        const saved = await readCredential(stores.credentials, { userId: USER.id }, choice.provider)
-        return saved?.type === 'api_key' ? undefined : choice.provider
+        return (await hasKey(choice)) ? undefined : choice.provider
       },
       close: async () => {
         // A session that is closed already is not in the set.

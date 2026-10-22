@@ -12,7 +12,8 @@ import type { Heddle } from './session'
 import { tempFolder } from './test-utils'
 
 /** The config of the tests: no sandbox, no code mode, and no MCP servers. */
-const CONFIG: HeddleConfig = { sandbox: false, codeMode: false, mcp: {} }
+// The tests script a fake opus, so the config names it. Else the keys of the shell pick the model.
+const CONFIG: HeddleConfig = { model: 'opus', sandbox: false, codeMode: false, mcp: {} }
 
 /** No test signs in. If one did, this keeps the browser closed. */
 const noBrowser = () => {}
@@ -57,6 +58,8 @@ interface StartOptions {
   project?: string
   /** The fake of opus, the model of the turns. Default: a fake with no answers. */
   opus?: AnyTextAdapter
+  /** The config. Default {@link CONFIG}. */
+  config?: HeddleConfig
 }
 
 /**
@@ -68,13 +71,14 @@ async function start({
   folder,
   project = 'project',
   opus = fakeText({ model: 'claude-opus-5-5' }),
+  config = CONFIG,
 }: StartOptions) {
   const root = join(folder, project)
   mkdirSync(root, { recursive: true })
   const heddle = await startHeddle({
     root,
     home: join(folder, 'home'),
-    config: CONFIG,
+    config,
     models: { ...silentModels(), opus },
     openUrl: noBrowser,
   })
@@ -331,6 +335,19 @@ test('missingKey gives anthropic without a key', async () => {
   const { missingKey } = await heddle.open()
   expect(await missingKey()).toBe('anthropic')
   process.env.ANTHROPIC_API_KEY = 'sk-env-123'
+  expect(await missingKey()).toBeUndefined()
+})
+
+test('with no model in the config, a session uses the first model that has a key', async () => {
+  using _keys = withoutEnvKeys()
+  process.env.OPENAI_API_KEY = 'sk-env-456'
+  using folder = tempFolder()
+  const { model: _named, ...noModel } = CONFIG
+  await using heddle = await start({ folder: folder.path, config: noModel })
+  const { view, missingKey } = await heddle.open()
+  await view.ready
+  const model = view.store.get().config.find((entry) => entry.key === 'model')?.value
+  expect(model).toBe('gpt')
   expect(await missingKey()).toBeUndefined()
 })
 
