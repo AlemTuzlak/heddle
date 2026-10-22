@@ -1,7 +1,7 @@
 import type { ViewCommand } from '@tanstack/ai-harness/view'
 
 /** An action of heddle itself. It is not a command of the harness. */
-export type LocalAction = 'sessions' | 'new' | 'quit' | 'help'
+export type LocalAction = 'sessions' | 'new' | 'quit' | 'help' | 'open'
 
 /**
  * What heddle does with one line of the composer.
@@ -45,6 +45,7 @@ const LOCAL_COMMANDS: ReadonlyArray<{
   { name: 'quit', action: 'quit', detail: 'Quit heddle' },
   { name: 'exit', action: 'quit', detail: 'Quit heddle' },
   { name: 'help', action: 'help', detail: 'Show the commands' },
+  { name: 'open', action: 'open', detail: 'Open the last file that an agent made' },
 ]
 
 /** The rows of the local commands in the `/` popup. They take no input. */

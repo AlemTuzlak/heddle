@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
 import type { SyntaxStyle } from '@opentui/core'
 import { useRenderer } from '@opentui/react'
 import type { PermissionRule, ProviderKeyStatus } from '@tanstack/ai-harness/plugins'
@@ -96,6 +97,7 @@ type HostCall =
   | { action: 'open'; threadId?: string }
   | { action: 'fork'; threadId: string }
   | { action: 'rename'; threadId: string; title: string }
+  | { action: 'openFile'; path: string }
 
 /** The view state of a session with the commands and the model `opus`, and nothing else. */
 function viewState(threadId: string, fields: Partial<SessionViewState>) {
@@ -222,6 +224,9 @@ function createHost(rows: ReadonlyArray<SessionRow>, sessions: ReadonlyArray<Fak
     onSessionsChange: () => () => {},
     folder: ROOT,
     history: { lines: () => [], add: () => {} },
+    openFile: (path) => {
+      calls.push({ action: 'openFile', path })
+    },
   }
   return { host, calls }
 }
@@ -764,5 +769,73 @@ describe('App sessions', () => {
     const header = app.lineWith('◆ heddle')
     expect(header).toContain('◌ 1 session needs you')
     expect(header).not.toContain('running')
+  })
+})
+
+describe('App media', () => {
+  /** A turn whose image agent made a PNG. */
+  const IMAGE_TURN: ViewMessage = {
+    id: 'turn-1',
+    role: 'assistant',
+    parts: [
+      { type: 'text', text: 'I will make it.' },
+      {
+        type: 'agent',
+        id: 'run-image',
+        name: 'image',
+        status: 'done',
+        parts: [
+          {
+            type: 'media',
+            id: 'artifact-1',
+            kind: 'image',
+            mimeType: 'image/png',
+            name: 'image-0.png',
+            size: 2048,
+            load: async () => new Uint8Array(),
+          },
+        ],
+      },
+    ],
+  }
+  const IMAGE_PATH = join(ROOT, 'heddle-media', 'artifact-1.png')
+
+  test('/open opens the last file that an agent made', async () => {
+    const fake = createSession('thread-1', { messages: [USER_MESSAGE, IMAGE_TURN] })
+    const { host, calls } = createHost([])
+    await using app = await mountApp(fake, { host })
+    expect(app.lineWith('◆ image')).toMatch(/◆ image +heddle-media\/artifact-1\.png +2 KB/)
+    await app.input(async (keys) => {
+      await keys.typeText('/open')
+      keys.pressEnter()
+    })
+    expect(calls).toEqual([{ action: 'openFile', path: IMAGE_PATH }])
+  })
+
+  test('/open in a session with no file says so', async () => {
+    const fake = createSession('thread-1', { messages: [USER_MESSAGE] })
+    const { host, calls } = createHost([])
+    await using app = await mountApp(fake, { host })
+    await app.input(async (keys) => {
+      await keys.typeText('/open')
+      keys.pressEnter()
+    })
+    expect(calls).toEqual([])
+    expect(fake.calls).toEqual([{ action: 'notice', text: 'No agent made a file in this session yet.' }])
+  })
+
+  test('enter on a media row opens its file', async () => {
+    const fake = createSession('thread-1', { messages: [USER_MESSAGE, IMAGE_TURN] })
+    const { host, calls } = createHost([])
+    await using app = await mountApp(fake, { host })
+    // tab gives the timeline the focus. The first ↑ selects the end of the image branch, the next one the file.
+    await app.input((keys) => keys.pressTab())
+    await app.input((keys) => {
+      keys.pressArrow('up')
+      keys.pressArrow('up')
+      keys.pressEnter()
+    })
+    expect(calls).toEqual([{ action: 'openFile', path: IMAGE_PATH }])
+    expect(fake.calls).toEqual([])
   })
 })

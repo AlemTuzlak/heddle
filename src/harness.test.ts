@@ -119,6 +119,11 @@ test('the local harness has the tools and commands', async () => {
   expect(await toolsOfTurn({})).toContain('execute_typescript')
 })
 
+test('the main model can call the image and video agents, also beside code mode', async () => {
+  expect(await toolsOfTurn({})).toEqual(expect.arrayContaining(['image', 'video']))
+  expect(await toolsOfTurn({ codeMode: false })).toEqual(expect.arrayContaining(['image', 'video']))
+})
+
 test('codeMode false has no execute_typescript', async () => {
   const tools = await toolsOfTurn({ codeMode: false })
   expect(tools).toContain('read_file')

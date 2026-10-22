@@ -71,8 +71,10 @@ export interface AppHost {
   /** Copies the session `threadId`, and gives the id of the copy. */
   fork(threadId: string): Promise<string>
   rename(threadId: string, title: string): Promise<void>
-  /** The project folder. The `@` paths of the input start in it. */
+  /** The project folder. The `@` paths of the input start in it, and the files of agents are in its `heddle-media`. */
   folder: string
+  /** Opens a file with the default app. It throws when the file does not exist. */
+  openFile(path: string): void
   /** The lines that the user sent, oldest first. */
   history: { lines(): ReadonlyArray<string>; add(line: string): void }
   /** Calls `listener` when a session runs, waits, stops, or gets a title. Gives the function that stops it. */
@@ -395,7 +397,8 @@ function Pane({ title, focused, shown, width, alignBottom, children }: {
  *   in place of the composer, and takes `y`, `a`, and `n`.
  * - ctrl+o opens the session picker, and ctrl+k the command palette.
  * - Enter on an agent row shows the transcript of that agent in the right
- *   pane. Esc goes back to the changes.
+ *   pane. Esc goes back to the changes. Enter on a file that an agent made
+ *   opens it with the default app, and so does `/open` for the last file.
  * - Esc while a turn runs stops it.
  * - ctrl+c twice in 1 second calls `onQuit`.
  *
@@ -491,8 +494,8 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
       : Math.min(1, contextTokens / contextWindow)
   const counts = useMemo(() => countsByToolCall(changes), [changes])
   const rowOptions = useMemo(
-    () => ({ model, root: session.root, counts }),
-    [model, session.root, counts],
+    () => ({ model, root: session.root, counts, folder: host.folder }),
+    [model, session.root, counts, host.folder],
   )
   const rows = useMemo(() => buildRows(messages, rowOptions), [messages, rowOptions])
   const agent = agentId.value === undefined ? undefined : findAgent(messages, agentId.value)
@@ -570,10 +573,20 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     current.now().view.loadAgent({ id }).catch(report)
   }
 
-  /** Enter on a row of `list`: an agent row opens the transcript of the agent. */
+  /** Opens a file with the default app, or shows why it cannot. */
+  const openFile = (path: string) => {
+    try {
+      host.openFile(path)
+    } catch (error) {
+      report(error)
+    }
+  }
+
+  /** Enter on a row of `list`: an agent row opens the transcript of the agent, and a media row opens its file. */
   const openRowIn = (list: ReadonlyArray<Row>) => (rowId: string) => {
-    const id = list.find((row) => row.id === rowId)?.agentId
-    if (id !== undefined) openAgent(id)
+    const row = list.find((each) => each.id === rowId)
+    if (row?.agentId !== undefined) openAgent(row.agentId)
+    if (row?.path !== undefined) openFile(row.path)
   }
 
   /** Opens a session with `open`, shows it, then closes the session that showed before. */
@@ -605,6 +618,12 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
       case 'help':
         openOverlay('palette')
         return
+      case 'open': {
+        const path = rows.findLast((row) => row.path !== undefined)?.path
+        if (path === undefined) current.now().view.notice({ text: 'No agent made a file in this session yet.' })
+        else openFile(path)
+        return
+      }
     }
   }
 

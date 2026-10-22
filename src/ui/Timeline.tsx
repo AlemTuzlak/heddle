@@ -1,7 +1,9 @@
-import { TextAttributes, type MouseEvent } from '@opentui/core'
+import { existsSync } from 'node:fs'
+import { NativeImage, TextAttributes, type ImageRenderable, type MouseEvent } from '@opentui/core'
 import { useKeyboard, useRenderer } from '@opentui/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Line, Segment } from '../state/timeline'
+import { NoFfmpegError, PREVIEW_FPS, readFrames } from '../video'
 import { isEnter, isPlain, useKeyState } from './keys'
 import { color, glyph } from './theme'
 
@@ -145,6 +147,132 @@ function LineView({ line, selected, spinner }: { line: Line; selected: boolean; 
   )
 }
 
+/** A preview in the window: the row, the file, and its lines in the window. */
+interface Shown {
+  rowId: string
+  kind: 'image' | 'video'
+  path: string
+  /** The cells before the preview. */
+  left: number
+  /** The first line of the preview in the window. */
+  top: number
+  /** The lines of the preview in the window. */
+  lines: number
+}
+
+/** Where a preview draws in the pane, in cells. */
+interface Place {
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
+/** The previews in the window. A preview that is partly out of the window has fewer lines. */
+function previewsOf(shown: ReadonlyArray<Line>) {
+  const previews: Array<Shown> = []
+  shown.forEach((line, index) => {
+    if (line.preview === undefined) return
+    const last = previews.at(-1)
+    if (last?.rowId === line.rowId && last.top + last.lines === index) last.lines += 1
+    else previews.push({ rowId: line.rowId, ...line.preview, top: index, lines: 1 })
+  })
+  return previews
+}
+
+/**
+ * A picture over its lines, at the left: an image file, or one frame of a
+ * video. It keeps its shape, and fits in `width` × `height` cells. OpenTUI
+ * draws it with the kitty or sixel graphics of the terminal, else with
+ * colored blocks.
+ */
+function Picture({ source, top, left, width, height, onError }: Place & {
+  source: string | NativeImage
+  onError?: () => void
+}) {
+  const picture = useRef<ImageRenderable>(null)
+  const [isLoaded, setLoaded] = useState(false)
+  // The picture draws in the middle of its box, so the box gets the width of the picture.
+  const cells = isLoaded && picture.current !== null ? picture.current.getFittedSize(width, height).width : width
+  return (
+    <box position="absolute" top={top} left={left} width={cells} height={height}>
+      <image
+        ref={picture}
+        source={source}
+        width={cells}
+        height={height}
+        onLoad={() => setLoaded(true)}
+        onError={onError}
+      />
+    </box>
+  )
+}
+
+/** A muted note on the first line of a preview, for example when the file is gone. */
+function PreviewNote({ text, top, left }: { text: string; top: number; left: number }) {
+  return (
+    <box position="absolute" top={top} left={left} height={1}>
+      <text fg={color.muted} wrapMode="none">{text}</text>
+    </box>
+  )
+}
+
+/** The note of a preview whose file was deleted. */
+const GONE = 'The file is gone.'
+
+/** The image file `path` over its lines. */
+function ImagePreview({ path, ...place }: Place & { path: string }) {
+  const [isBroken, setBroken] = useState(false)
+  if (!existsSync(path)) return <PreviewNote text={GONE} top={place.top} left={place.left} />
+  if (isBroken) return <PreviewNote text="heddle could not read the image." top={place.top} left={place.left} />
+  return <Picture source={path} {...place} onError={() => setBroken(true)} />
+}
+
+/**
+ * The video file `path` over its lines. When it comes into the window,
+ * ffmpeg reads its frames. Then it plays them in a loop, with no sound, until
+ * it leaves the window. Without ffmpeg, it says how to get a preview.
+ */
+function VideoPreview({ path, ...place }: Place & { path: string }) {
+  const renderer = useRenderer()
+  const [video, setVideo] = useState<{ frames: Array<NativeImage> } | { note: string }>({
+    note: 'Reading the video…',
+  })
+  const [frame, setFrame] = useState(0)
+  useEffect(() => {
+    const abort = new AbortController()
+    let frames: Array<NativeImage> = []
+    readFrames(path, abort.signal).then(
+      (read) => {
+        if (abort.signal.aborted) return
+        frames = read.frames.map((pixels) => NativeImage.fromRgba(pixels, read.width, read.height))
+        setVideo(frames.length > 0 ? { frames } : { note: 'The video has no frames.' })
+      },
+      (error: unknown) => {
+        if (abort.signal.aborted) return
+        setVideo({ note: error instanceof NoFfmpegError ? error.message : 'heddle could not read the video.' })
+      },
+    )
+    return () => {
+      abort.abort()
+      for (const each of frames) each.dispose()
+    }
+  }, [path])
+  const count = 'frames' in video ? video.frames.length : 0
+  useEffect(() => {
+    if (count < 2) return
+    const timer = renderer.clock.setInterval(() => setFrame((current) => (current + 1) % count), 1000 / PREVIEW_FPS)
+    return () => renderer.clock.clearInterval(timer)
+  }, [count, renderer])
+  const current = 'frames' in video ? video.frames[frame % count] : undefined
+  if (!existsSync(path)) return <PreviewNote text={GONE} top={place.top} left={place.left} />
+  if (current === undefined) {
+    const note = 'note' in video ? video.note : 'The video has no frames.'
+    return <PreviewNote text={note} top={place.top} left={place.left} />
+  }
+  return <Picture source={current} {...place} />
+}
+
 /** `↓ 3 new` at the bottom right of the pane. */
 function NewLines({ count }: { count: number }) {
   return (
@@ -185,6 +313,10 @@ function NewLines({ count }: { count: number }) {
  * The selected row has a quiet background, also while the pane is not
  * focused. The selection is a row id, so it stays on its row when lines
  * change. When no line has the selected row any more, no row is selected.
+ *
+ * A line with `preview` has its part of the preview of an image or a video.
+ * The pane draws the file over the lines of its row that are in the window.
+ * A video plays in a loop while it is in the window.
  *
  * A spinner (a segment with the text `glyph.spinner.charAt(0)`) turns while
  * `live` is true. One 90 ms timer of the renderer clock runs, only while
@@ -335,6 +467,14 @@ export function Timeline({
         // The key is the place in the window, so a scroll changes the text and keeps the boxes.
         <LineView key={index} line={line} selected={line.rowId === selected.value} spinner={spinner} />
       ))}
+      {previewsOf(shown).map(({ rowId, kind, path, top, left, lines: count }) => {
+        const place = { top, left, width: Math.max(1, width - left), height: count }
+        return kind === 'image' ? (
+          <ImagePreview key={rowId} path={path} {...place} />
+        ) : (
+          <VideoPreview key={rowId} path={path} {...place} />
+        )
+      })}
       {fresh > 0 ? <NewLines count={fresh} /> : null}
     </box>
   )

@@ -2,12 +2,14 @@
 // the rows into screen lines. It has no UI code and does no I/O.
 import type {
   AgentPart,
+  MediaPart,
   NoticeKind,
   ToolCallPart,
   ToolCallStatus,
   ViewMessage,
   ViewPart,
 } from '@tanstack/ai-harness/view'
+import { mediaPath } from '../media'
 import { color, glyph } from '../ui/theme'
 import { graphemes, isRecord, relativePath } from '../utils'
 import { markdownSegments } from './markdown'
@@ -26,6 +28,7 @@ export interface Row {
     | 'notice'
     | 'error'
     | 'reasoning'
+    | 'media'
   /** 0 = the lead agent, 1 or more = subagents. */
   depth: number
   /** 'you', the model name, the tool label, or the agent name. */
@@ -41,6 +44,12 @@ export interface Row {
   agentId?: string
   /** Program rows: the program text. */
   code?: string
+  /** Media rows: the file in `heddle-media`. */
+  path?: string
+  /** Media rows: the preview under the row, for an image or a video. */
+  preview?: 'image' | 'video'
+  /** Media rows: the size of the file, in bytes. */
+  size?: number
 }
 
 /** Text with one style. The colors are hex values from `color`. */
@@ -57,6 +66,12 @@ export interface Segment {
 export interface Line {
   rowId: string
   segments: Array<Segment>
+  /**
+   * A line of the preview of an image or a video. The timeline pane draws
+   * the file `path` over the lines of the row that have it, from `left`
+   * cells on.
+   */
+  preview?: { kind: 'image' | 'video'; path: string; left: number }
 }
 
 export interface RowOptions {
@@ -66,6 +81,11 @@ export interface RowOptions {
   root: string
   /** The `+N −N` of the file changes of each tool call, by tool call id. */
   counts?: ReadonlyMap<string, { additions: number; deletions: number }>
+  /**
+   * The project folder. A media row has the path of its file in
+   * `heddle-media` there. Without it, a media row shows only the file name.
+   */
+  folder?: string
 }
 
 // Rows
@@ -166,6 +186,24 @@ function toolRow(call: ToolCallPart, depth: number, options: RowOptions) {
     write: WRITE_TOOLS.includes(call.name),
     additions: counts?.additions,
     deletions: counts?.deletions,
+  }
+  return row
+}
+
+function mediaRow(part: MediaPart, depth: number, options: RowOptions) {
+  const path = options.folder === undefined ? undefined : mediaPath(options.folder, part)
+  // An image and a video have a preview. Audio and documents do not.
+  const kind = part.kind === 'image' || part.kind === 'video' ? part.kind : undefined
+  const row: Row = {
+    id: part.id,
+    kind: 'media',
+    depth,
+    title: part.kind,
+    text: path === undefined ? part.name : relativePath(path, options.folder ?? ''),
+    write: true,
+    path,
+    preview: path === undefined ? undefined : kind,
+    size: part.size,
   }
   return row
 }
@@ -306,6 +344,7 @@ function addParts(
         break
       }
       case 'media':
+        rows.push(mediaRow(part, scope.depth, options))
         break
     }
   }
@@ -321,10 +360,12 @@ function addParts(
  * - A tool call that waits for an approval has the status `waiting`.
  * - The reasoning of a model is a `reasoning` row. `layoutLines` shows it in
  *   muted italic, and shows the answers as markdown.
+ * - A file that an agent made is a `media` row, with its path in
+ *   `heddle-media` of `options.folder`.
  *
  * @param messages The messages of the view state.
- * @param options The model name, the tools root, and the line counts of the
- *   tool calls.
+ * @param options The model name, the tools root, the line counts of the
+ *   tool calls, and the project folder.
  * @example
  * const rows = buildRows(view.store.get().messages, { model: 'opus', root, counts })
  */
@@ -442,6 +483,8 @@ const MIN_HANG = 10
 const TAIL_GAP = 2
 /** The first spinner frame. The timeline pane swaps it for the frame of the moment. */
 const SPINNER = glyph.spinner.charAt(0)
+/** The lines of the preview of an image or a video. */
+const PREVIEW_LINES = 12
 
 /** The display width of the segments, in terminal cells. */
 function widthOf(segments: ReadonlyArray<Segment>) {
@@ -616,9 +659,19 @@ function statusTail(status: Row['status']) {
   }
 }
 
-/** The right end of a tool row: `+N −N`, then the status. */
+/** A file size, such as `950 B`, `12 KB`, or `1.4 MB`. */
+function sizeText(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** The right end of a tool row: `+N −N`, then the status. A media row has its size. */
 function tailOf(row: Row) {
   const groups: Array<Array<Segment>> = []
+  if (row.size !== undefined) {
+    groups.push([{ text: sizeText(row.size), fg: color.muted }])
+  }
   if (row.additions) {
     groups.push([{ text: `+${row.additions}`, fg: color.woad }])
   }
@@ -685,7 +738,8 @@ function rowLines(row: Row, width: number) {
       )
     }
     case 'tool':
-    case 'program': {
+    case 'program':
+    case 'media': {
       const label = `${row.write ? glyph.write : glyph.read} ${title}`
       const pad = Math.max(LABEL_CELLS - Bun.stringWidth(label), 0)
       return blockLines(
@@ -772,6 +826,9 @@ function fit(segments: ReadonlyArray<Segment>, width: number) {
  * - The lanes of subagents are lavender. Errors are madder.
  * - A tool row has its `+N −N` and its status at the right end. A spinner is
  *   a segment whose text is `glyph.spinner.charAt(0)`.
+ * - A media row shows like a tool row, with the size of the file at the right
+ *   end. An image or a video row has 12 more lines with only the lane, and
+ *   with `preview` set: the timeline pane draws the file over them.
  * - Each line has the id of a row. A blank line and a `├─╮` line belong to
  *   the row after them. A `├─╯` line and a `┊` line belong to the row before
  *   them.
@@ -811,6 +868,14 @@ export function layoutLines(rows: ReadonlyArray<Row>, width: number, activity?: 
     }
     const segmentsOfRow = rowLines(row, width)
     for (const segments of segmentsOfRow) add(row.id, segments)
+    if (row.preview !== undefined && row.path !== undefined) {
+      // The pane draws the image or the video over these lines, after the lane.
+      const front = [...lanes(row.depth), { text: glyph.spine, ...spineStyle(row.depth) }, { text: GAP }]
+      const preview = { kind: row.preview, path: row.path, left: widthOf(front) }
+      for (let line = 0; line < PREVIEW_LINES; line += 1) {
+        lines.push({ rowId: row.id, segments: fit(front, width), preview })
+      }
+    }
     if (row.kind === 'agent-end') {
       add(row.id, branchLine(row.depth, glyph.close))
       open = row.depth - 1

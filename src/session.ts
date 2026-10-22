@@ -12,7 +12,9 @@ import {
   type ProviderKeyStatus,
 } from '@tanstack/ai-harness/plugins'
 import { createSessionView } from '@tanstack/ai-harness/view'
+import { defineAIPersistence } from '@tanstack/ai-persistence'
 import { KEY_PROVIDERS, MODELS, createHarness, type ModelChoice } from './harness'
+import { mediaBlobs } from './media'
 import { CONTAINER_ROOT, createSandbox } from './sandbox'
 import { watchChanges } from './state/changes'
 import { openSqliteStores } from './store/sqlite'
@@ -79,6 +81,8 @@ export interface Heddle {
   rename(threadId: string, title: string): Promise<void>
   /** The project folder. */
   folder: string
+  /** Opens the file `path` with the default app of the system. It throws when the file does not exist. */
+  openFile(path: string): void
   /**
    * The lines that the user sent, oldest first, the newest 200 of all
    * folders. heddle keeps them in `~/.heddle/history.json`.
@@ -206,16 +210,18 @@ function statusOf(snapshot: SessionSnapshot) {
   return isRunning ? 'live' : 'done'
 }
 
-/** The command that opens `url` in the browser, with no shell. */
-function browserCommand(url: string) {
+/** The command that opens a URL or a file with the default app, with no shell. */
+function openerCommand(target: string) {
   switch (process.platform) {
     case 'win32':
       // Not `cmd /c start`: cmd reads the `&` of a URL as the start of a new command.
-      return ['rundll32', 'url.dll,FileProtocolHandler', url]
+      return /^https?:\/\//i.test(target)
+        ? ['rundll32', 'url.dll,FileProtocolHandler', target]
+        : ['explorer', target]
     case 'darwin':
-      return ['open', url]
+      return ['open', target]
     default:
-      return ['xdg-open', url]
+      return ['xdg-open', target]
   }
 }
 
@@ -223,7 +229,13 @@ function browserCommand(url: string) {
 function openInBrowser(url: string) {
   const isWebPage = /^https?:\/\//i.test(url)
   if (!isWebPage) throw new Error(`heddle opens only http and https pages, not ${url}.`)
-  Bun.spawn(browserCommand(url), { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }).unref()
+  Bun.spawn(openerCommand(url), { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }).unref()
+}
+
+/** Opens the file `path` with the default app. It throws when the file does not exist. */
+function openFile(path: string) {
+  if (!existsSync(path)) throw new Error(`The file ${path} does not exist.`)
+  Bun.spawn(openerCommand(path), { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }).unref()
 }
 
 /**
@@ -231,6 +243,8 @@ function openInBrowser(url: string) {
  *
  * - The sessions and the keys are in `<home>/.heddle/heddle.db`, and the log
  *   file is `<home>/.heddle/logs/heddle.log`. heddle makes the folders.
+ * - The files that agents make, such as images, are saved in
+ *   `<root>/heddle-media/`.
  * - The harness of each place is made when a session first uses it: `local`
  *   for the folder, and `docker` with one sandbox that the docker sessions
  *   share.
@@ -271,8 +285,12 @@ export async function startHeddle(options: {
   const stores = openSqliteStores(join(dataDir, 'heddle.db'))
   const historyFile = join(dataDir, 'history.json')
   let historyLines = readHistory(historyFile, logger)
+  // The files that agents make get a copy in `<root>/heddle-media`.
+  const persistence = defineAIPersistence({
+    stores: { ...stores.persistence.stores, blobs: mediaBlobs(root, logger) },
+  })
   const host = createHarnessHost({
-    persistence: stores.persistence,
+    persistence,
     credentials: stores.credentials,
     logger,
     ownership: OWNERSHIP,
@@ -503,6 +521,7 @@ export async function startHeddle(options: {
       return () => abort.abort()
     },
     folder: root,
+    openFile,
     history: {
       lines: () => historyLines,
       add: (line) => {

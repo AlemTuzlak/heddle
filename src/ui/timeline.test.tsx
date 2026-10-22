@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { rgbToHex, type TimerHandle } from '@opentui/core'
 import { ManualClock, type MockInput, type MockMouse } from '@opentui/core/testing'
 import { testRender } from '@opentui/react/test-utils'
 import { act, useState, type ComponentProps } from 'react'
 import type { Line } from '../state/timeline'
+import { hasFfmpeg, redThenBlueVideo, tempFolder } from '../test-utils'
 import { Timeline } from './Timeline'
 import { color } from './theme'
 
@@ -149,8 +152,26 @@ async function mountTimeline(props: Partial<TimelineProps>) {
     },
     press: (send: (keys: MockInput) => unknown) => step(() => send(setup.mockInput)),
     mouse: (send: (mouse: MockMouse) => unknown) => step(() => send(setup.mockMouse)),
-    update: (patch: Partial<TimelineProps>) => step(() => controls.update(patch)),
+    /** Changes the props, then waits `waitMs` of real time, for example for an image to load. */
+    update: (patch: Partial<TimelineProps>, waitMs = 0) =>
+      step(async () => {
+        controls.update(patch)
+        await Bun.sleep(waitMs)
+      }),
     advance: (ms: number) => step(() => clock.advance(ms)),
+    /**
+     * Waits in steps of 20 ms until `check` is true, at most `ms`. Gives the
+     * last result. A file loads, or ffmpeg reads a video, in its own time.
+     */
+    waitFor: async (check: () => boolean, ms = 3000) => {
+      for (const until = Date.now() + ms; !check() && Date.now() < until; ) {
+        await step(() => Bun.sleep(20))
+      }
+      return check()
+    },
+    /** The hex text and background colors of the text runs of the terminal row `row`. */
+    colorsAt: (row: number) =>
+      (setup.captureSpans().lines[row]?.spans ?? []).flatMap((span) => [rgbToHex(span.fg), rgbToHex(span.bg)]),
     // The renderer unmounts the React root when it is destroyed.
     // act() tells React that this update is expected in a test.
     [Symbol.asyncDispose]: () => act(() => setup.dispose()),
@@ -359,5 +380,123 @@ describe('Timeline spinner', () => {
     expect(timeline.clock.intervals.size).toBe(0)
     await timeline.press((keys) => keys.pressKey('END'))
     expect([...timeline.clock.intervals.values()]).toEqual([90])
+  })
+})
+
+describe('Timeline images', () => {
+  /** A PNG of 4 × 4 pixels: red at the top, blue at the bottom. */
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP4z8AARwwoHDQuggMAnqMP8dxMDd4AAAAASUVORK5CYII='
+
+  /** The caption line of an image row, then `count` preview lines of the image `path`. */
+  function imageLines(path: string, count: number) {
+    const preview = { kind: 'image' as const, path, left: 3 }
+    const caption: Line = { rowId: 'image-1', segments: [{ text: '│  ◆ image   heddle-media/a.png' }] }
+    const below = Array.from({ length: count }, () => {
+      const line: Line = { rowId: 'image-1', segments: [{ text: '│  ' }], preview }
+      return line
+    })
+    return [caption, ...below]
+  }
+
+  test('an image draws over its lines, after the lane, in the shape of the image', async () => {
+    using folder = tempFolder()
+    const path = join(folder.path, 'a.png')
+    writeFileSync(path, Buffer.from(PNG, 'base64'))
+    await using timeline = await mountTimeline({ lines: [] })
+    await timeline.update({ lines: imageLines(path, 4) })
+    expect(await timeline.waitFor(() => timeline.rows()[4] === '│  ████████')).toBe(true)
+    // A square image is twice as wide as it is high, in cells.
+    expect(timeline.rows().slice(0, 5)).toEqual([
+      '│  ◆ image   heddle-media/a.png',
+      '│  ████████',
+      '│  ████████',
+      '│  ████████',
+      '│  ████████',
+    ])
+    expect(timeline.bgOf('████████')).toBe('#ff0000')
+  })
+
+  test('an image that is partly out of the window gets smaller', async () => {
+    using folder = tempFolder()
+    const path = join(folder.path, 'a.png')
+    writeFileSync(path, Buffer.from(PNG, 'base64'))
+    // The window shows the last 10 lines: the last 2 lines of the image, then 8 more.
+    await using timeline = await mountTimeline({ lines: [] })
+    await timeline.update({ lines: [...imageLines(path, 4), ...numberedLines(8)] })
+    expect(await timeline.waitFor(() => timeline.rows()[0] === '│  ████')).toBe(true)
+    expect(timeline.rows().slice(0, 3)).toEqual(['│  ████', '│  ████', 'line 001'])
+  })
+
+  test('an image whose file is gone says so', async () => {
+    using folder = tempFolder()
+    await using timeline = await mountTimeline({ lines: imageLines(join(folder.path, 'gone.png'), 4) })
+    expect(timeline.rows().slice(0, 3)).toEqual(['│  ◆ image   heddle-media/a.png', '│  The file is gone.', '│'])
+  })
+})
+
+describe('Timeline videos', () => {
+  /** The caption line of a video row, then `count` preview lines of the video `path`. */
+  function videoLines(path: string, count: number) {
+    const preview = { kind: 'video' as const, path, left: 3 }
+    const caption: Line = { rowId: 'video-1', segments: [{ text: '│  ◆ video   heddle-media/a.mp4' }] }
+    const below = Array.from({ length: count }, () => {
+      const line: Line = { rowId: 'video-1', segments: [{ text: '│  ' }], preview }
+      return line
+    })
+    return [caption, ...below]
+  }
+
+  /** True when the hex color is mostly red, or mostly blue. */
+  const isRed = (hex: string) => /^#[e-f][0-9a-f](?:[0-3][0-9a-f]){2}$/.test(hex)
+  const isBlue = (hex: string) => /^#(?:[0-3][0-9a-f]){2}[e-f][0-9a-f]$/.test(hex)
+
+  /** The rows of a video preview: half blocks, 2 pixels high in each cell. */
+  const PICTURE = /^│  [▀▄█]+$/
+
+  test.skipIf(!hasFfmpeg)('a video plays its frames in a loop, 10 each second', async () => {
+    using folder = tempFolder()
+    const path = join(folder.path, 'clip.mp4')
+    redThenBlueVideo(path)
+    await using timeline = await mountTimeline({ lines: [] })
+    await timeline.update({ lines: videoLines(path, 4) })
+    expect(await timeline.waitFor(() => timeline.rows().slice(1, 5).every((row) => PICTURE.test(row)))).toBe(true)
+    // The colors of the middle row of the picture.
+    const colors = () => timeline.colorsAt(3)
+    expect(colors().some(isRed)).toBe(true)
+    expect([...timeline.clock.intervals.values()]).toEqual([100])
+    // The red half is 5 frames. Then the blue half shows, then the red half again.
+    await timeline.advance(500)
+    expect(await timeline.waitFor(() => colors().some(isBlue) && !colors().some(isRed))).toBe(true)
+    await timeline.advance(500)
+    expect(await timeline.waitFor(() => colors().some(isRed) && !colors().some(isBlue))).toBe(true)
+  })
+
+  test.skipIf(!hasFfmpeg)('a video that leaves the window stops', async () => {
+    using folder = tempFolder()
+    const path = join(folder.path, 'clip.mp4')
+    redThenBlueVideo(path)
+    await using timeline = await mountTimeline({ lines: [] })
+    await timeline.update({ lines: videoLines(path, 4) })
+    expect(await timeline.waitFor(() => timeline.clock.intervals.size === 1)).toBe(true)
+    await timeline.update({ lines: [...videoLines(path, 4), ...numberedLines(20)] })
+    expect(timeline.rows().some((row) => /[▀▄█]/.test(row))).toBe(false)
+    expect(timeline.clock.intervals.size).toBe(0)
+  })
+
+  test('without ffmpeg, a video says how to get a preview', async () => {
+    using folder = tempFolder()
+    const video = join(folder.path, 'a.mp4')
+    writeFileSync(video, 'a video')
+    const path = process.env.PATH
+    // A folder with no ffprobe as the PATH.
+    process.env.PATH = folder.path
+    try {
+      await using timeline = await mountTimeline({ lines: [] })
+      await timeline.update({ lines: videoLines(video, 4) }, 50)
+      const note = '│  Install ffmpeg to play the video.'
+      expect(await timeline.waitFor(() => timeline.rows()[1] === note)).toBe(true)
+    } finally {
+      process.env.PATH = path
+    }
   })
 })

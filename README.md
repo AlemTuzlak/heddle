@@ -103,7 +103,7 @@ From the top:
 | Part | What it shows |
 | --- | --- |
 | Header | The session title, the model, the effort, and the agent, `local` or `docker` with the sync state, the context meter, the tokens in and out with the number of model calls, and the cost. While a goal runs, it also shows the goal. `no key` shows when the model has no API key. |
-| Session pane | The timeline. `●` starts a message, and the answers show as markdown. `thinking` rows show the reasoning of the model in muted italic. `◇` is a tool that reads, and `◆` is a tool that writes. A subagent branches off at `├─╮` and comes back at `├─╯`. |
+| Session pane | The timeline. `●` starts a message, and the answers show as markdown. `thinking` rows show the reasoning of the model in muted italic. `◇` is a tool that reads, and `◆` is a tool that writes. A subagent branches off at `├─╮` and comes back at `├─╯`. A file that an agent made shows as `◆ image  heddle-media/<file>`, with a preview of an image or a video under it. See [Images and videos](#images-and-videos). |
 | Changes pane | The files that the session changed, with their `+` and `−` line counts. Under them is the diff of one file. |
 | Approval bar | A question from heddle. It shows only while heddle waits for your answer. |
 | Input and key hints | You type here. The last row shows the keys that work now. |
@@ -152,6 +152,7 @@ In the session pane:
 | `↑` `↓` | Select a row. |
 | `pageup` `pagedown` `home` `end` | Scroll. |
 | `enter` on a subagent row | Show the transcript of that subagent in the right pane. `esc` goes back. |
+| `enter` on a file row | Open the file with the default app of your system. |
 
 While a turn runs, the last line of the session pane shows a spinner and what the turn does: `Starting…`, `Thinking…`, or `Working…`. In a big folder, the first turn can stay on `Starting…` for some time, because heddle saves a snapshot of the files before the first model call.
 
@@ -178,6 +179,7 @@ heddle has these commands of its own:
 | `/new` | Start a new session. |
 | `/quit` or `/exit` | Quit heddle. |
 | `/help` | Open the command palette. |
+| `/open` | Open the last file that an agent made, with the default app of your system. |
 
 The agent has more commands. You use these the most:
 
@@ -215,6 +217,24 @@ Give heddle a key in one of two ways:
 - `/model` shows the models, and marks the model of the session with `(current)`. Pick one, or type `/model sonnet`. The new model applies from the next turn.
 - `/keys` shows where each key comes from. `/disconnect` lists the saved keys, and removes the key that you pick.
 - heddle uses a small model for titles, for the summaries of `/compact`, and for goal checks. It is `haiku`, `luna`, or `grok`: the small model of the provider of the `model` in your config. If you have only an OpenAI key or an xAI key, set `model` in a config file.
+
+## Images and videos
+
+Ask in your own words, for example `make an image of a red fox in the snow`, or `make a short video of a fox that runs through snow`. The model calls the `image` tool or the `video` tool. Ask for both in one message, and the model calls the two tools at the same time.
+
+| Tool | Model | Key |
+| --- | --- | --- |
+| `image` | OpenAI `gpt-image-2.5-flare`, 1024 × 1024 | OpenAI (`/connect openai` or `OPENAI_API_KEY`) |
+| `video` | xAI `grok-imagine-video-1.5` when you have an xAI key, else OpenAI `sora-2` | xAI (`/connect grok` or `XAI_API_KEY`), else OpenAI |
+
+The tools need these keys also when the model of the session is from another provider. A video takes a minute or two.
+
+- heddle saves each file in the `heddle-media` folder of the project, as `heddle-media/<id>.png` or `heddle-media/<id>.mp4`. Add the folder to your `.gitignore` if you do not want to commit the files.
+- The session pane shows a preview under the row of the file, 12 lines high. The preview uses the kitty or the sixel graphics of your terminal. A terminal that has neither, and tmux, get colored blocks.
+- A video plays in the preview in a loop, 10 frames each second, with no sound, while it is in the pane. heddle reads the frames with ffmpeg, so `ffmpeg` and `ffprobe` must be on the PATH. Without them, the preview says `Install ffmpeg to play the video.` The preview plays the first 20 seconds.
+- `enter` on the row, or `/open` for the last file, opens the file in the default app of your system, with sound for a video.
+
+After a restart, the model does not see the old files. The previews and the files stay.
 
 ## Config files
 
@@ -419,6 +439,7 @@ If heddle stopped without a clean quit, for example after a crash, wait 5 second
 | `~/.heddle/logs/heddle.log` | The log, with the details of each error. heddle leaves out each field whose name has `key`, `token`, `secret`, or `password`. |
 | `~/.heddle/snapshots/` | The file snapshots of local sessions, for `/undo`. A sandbox session keeps them in its container. |
 | `~/.heddle/history.json` | The last 200 lines that you sent, for `↑` in the input. |
+| `<project>/heddle-media/` | The images and videos that agents made in the project. |
 | `~/.heddle/config.json` | Your config for all projects. |
 | `~/.heddle/agents/` | Your own agents. Each `.md` file is an agent: the file name is its name, and the text is its system prompt. `<project>/.heddle/agents/` has the agents of one project. |
 

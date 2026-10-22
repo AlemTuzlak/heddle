@@ -23,6 +23,7 @@ import { mcp } from '@tanstack/ai-mcp/harness'
 import { createOpenaiChat } from '@tanstack/ai-openai'
 import { openaiByok } from '@tanstack/ai-openai/byok'
 import { effortPicker } from './effort'
+import { MEDIA_DIR, imageAgent, videoAgent } from './media'
 import type { AnyTextAdapter, KeyedAdapter, ReasoningLevel } from '@tanstack/ai'
 import type { HarnessPlugin } from '@tanstack/ai-harness'
 import type { WorkspaceBinder } from '@tanstack/ai-harness/plugins/coding'
@@ -151,6 +152,9 @@ const CONTAINER_ROOT = '/workspace'
 const SYSTEM_PROMPT =
   'You are heddle, a careful coding agent in a terminal. Read the code before you change it. Make small changes, and check your work. Keep your answers short.'
 
+/** What the main model must know about the image and video tools. */
+const MEDIA_PROMPT = `The image tool makes an image, and the video tool makes a short video. The user sees each file, and heddle saves it in the ${MEDIA_DIR} folder of the project, so do not write a file as text or as a link. When the user asks for more than one file, call the tools in the same reply, so that they run at the same time.`
+
 /** The model with the name or the model id `model`. */
 function choiceOf(model: string) {
   const choice = CHOICES.find(
@@ -278,7 +282,9 @@ export function createHarness(options: {
     // The model picker picks the model of each turn. This one is used only
     // when no plugin picks a model.
     adapter: main,
-    systemPrompts: [SYSTEM_PROMPT],
+    systemPrompts: [SYSTEM_PROMPT, MEDIA_PROMPT],
+    // The main model calls the image and video agents as tools.
+    subagents: { agents: [imageAgent, videoAgent] },
     plugins: () => [
       providerKeys({ providers: KEY_PROVIDERS }),
       modelPicker({ choices: adapters, default: choice.name }),

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
 import type {
   AgentPart,
+  MediaPart,
   ToolCallPart,
   ViewMessage,
   ViewPart,
@@ -625,5 +627,70 @@ describe('markdown and reasoning', () => {
     const line = lineAt(layoutLines(rows, 60), '│  thinking')
     const text = line.segments.find((segment) => segment.text.includes('Check the test first.'))
     expect(text).toMatchObject({ fg: color.muted, italic: true })
+  })
+})
+
+describe('media', () => {
+  const folder = 'F:/projects/demo'
+  /** A PNG of 1.4 MB that the image agent made. */
+  const image: MediaPart = {
+    type: 'media',
+    id: 'artifact-1',
+    kind: 'image',
+    mimeType: 'image/png',
+    name: 'image-0.png',
+    size: 1_468_006,
+    load: async () => new Uint8Array(),
+  }
+  const path = join(folder, 'heddle-media', 'artifact-1.png')
+
+  test('an image of an agent is a media row with its file in heddle-media, and a preview', () => {
+    const agent = agentPart('run-image', [image], { name: 'image' })
+    const rows = buildRows([assistant('a1', [agent])], { ...options, folder })
+    expect(rows.find((row) => row.kind === 'media')).toEqual({
+      id: 'artifact-1',
+      kind: 'media',
+      depth: 1,
+      title: 'image',
+      text: 'heddle-media/artifact-1.png',
+      write: true,
+      path,
+      preview: 'image',
+      size: 1_468_006,
+    })
+    const lines = layoutLines(rows, 60)
+    expect(plain([lineAt(lines, '│ │  ◆ image')])[0]).toMatch(/^│ │  ◆ image     heddle-media\/artifact-1\.png +1\.4 MB$/)
+    // The pane draws the image over the next 12 lines, after the lanes.
+    const preview = lines.filter((line) => line.preview !== undefined)
+    expect(preview).toHaveLength(12)
+    expect(preview.every((line) => line.rowId === 'artifact-1')).toBe(true)
+    expect(preview[0]?.preview).toEqual({ kind: 'image', path, left: 5 })
+    expect(new Set(plain(preview))).toEqual(new Set(['│ │']))
+  })
+
+  test('after a reload, the image is at the end of the message, in the lead lane', () => {
+    const rows = buildRows([assistant('a1', [textPart('Here it is.'), image])], { ...options, folder })
+    expect(rows.map((row) => [row.kind, row.depth])).toEqual([['assistant', 0], ['media', 0]])
+    const lines = layoutLines(rows, 60)
+    expect(lines.find((line) => line.preview !== undefined)?.preview).toEqual({ kind: 'image', path, left: 3 })
+  })
+
+  test('a video has a preview too', () => {
+    const clip: MediaPart = { ...image, id: 'artifact-3', kind: 'video', mimeType: 'video/mp4', name: 'clip.mp4' }
+    const rows = buildRows([assistant('a1', [clip])], { ...options, folder })
+    expect(rows[0]).toMatchObject({ title: 'video', text: 'heddle-media/artifact-3.mp4', preview: 'video' })
+    const preview = layoutLines(rows, 60).filter((line) => line.preview !== undefined)
+    expect(preview).toHaveLength(12)
+    expect(preview[0]?.preview).toEqual({ kind: 'video', path: join(folder, 'heddle-media', 'artifact-3.mp4'), left: 3 })
+  })
+
+  test('audio has no preview, and without a folder a media row has only the file name', () => {
+    const song: MediaPart = { ...image, id: 'artifact-2', kind: 'audio', mimeType: 'audio/mpeg', name: 'song.mp3' }
+    const withFolder = buildRows([assistant('a1', [song])], { ...options, folder })
+    expect(withFolder[0]).toMatchObject({ text: 'heddle-media/artifact-2.mp3', preview: undefined })
+    expect(layoutLines(withFolder, 60).some((line) => line.preview !== undefined)).toBe(false)
+    const withoutFolder = buildRows([assistant('a1', [image])], options)
+    expect(withoutFolder[0]).toMatchObject({ text: 'image-0.png', path: undefined, preview: undefined })
+    expect(layoutLines(withoutFolder, 60).some((line) => line.preview !== undefined)).toBe(false)
   })
 })
