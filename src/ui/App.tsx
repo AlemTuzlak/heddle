@@ -27,7 +27,7 @@ import { useView, useWatch, type ViewStore } from '../state/useView'
 import { isRecord, messageOf } from '../utils'
 import { ApprovalBar } from './ApprovalBar'
 import { Changes } from './Changes'
-import { Composer } from './Composer'
+import { Composer, type Dictation } from './Composer'
 import { Header } from './Header'
 import { Hints, type Hint } from './Hints'
 import { isPlain, useKeyState } from './keys'
@@ -35,6 +35,8 @@ import { Palette, type PaletteItem } from './Palette'
 import { SessionPicker, type SessionRow } from './SessionPicker'
 import { Timeline } from './Timeline'
 import { color } from './theme'
+import { VoiceBar, type VoiceState } from './VoiceBar'
+import type { Recording, Voice } from '../voice'
 
 /**
  * An open session, as the app shows it. It has the same fields as
@@ -75,6 +77,8 @@ export interface AppHost {
   folder: string
   /** Opens a file with the default app. It throws when the file does not exist. */
   openFile(path: string): void
+  /** Voice input: the microphones, the recording, and the words of a recording. */
+  voice: Voice
   /** The lines that the user sent, oldest first. */
   history: { lines(): ReadonlyArray<string>; add(line: string): void }
   /** Calls `listener` when a session runs, waits, stops, or gets a title. Gives the function that stops it. */
@@ -137,6 +141,9 @@ const CHROME_ROWS = 5
 
 /** The rows of the approval bar with one line. */
 const BAR_ROWS = 3
+
+/** The rows of the voice bar. */
+const VOICE_ROWS = 1
 
 /** Two ctrl+c in this time quit. */
 const QUIT_MS = 1000
@@ -337,6 +344,7 @@ function hintsFor({ focus, isAnswering, isAgentOpen, isRunning, isQuitting }: {
         ...escape,
         ...MOVE_HINTS,
         { key: '/', label: 'command' },
+        { key: 'ctrl+r', label: 'talk' },
       ]
     case 'timeline':
       return [...quit, ...rowKeys, ...escape, ...MOVE_HINTS]
@@ -396,6 +404,9 @@ function Pane({ title, focused, shown, width, alignBottom, children }: {
  * - While an approval or a question waits, the approval bar has the focus
  *   in place of the composer, and takes `y`, `a`, and `n`.
  * - ctrl+o opens the session picker, and ctrl+k the command palette.
+ * - ctrl+r starts a recording, and ctrl+r again stops it. The words go in the
+ *   input, to send with enter. Esc cancels the recording. `/mic` lists the
+ *   microphones.
  * - Enter on an agent row shows the transcript of that agent in the right
  *   pane. Esc goes back to the changes. Enter on a file that an agent made
  *   opens it with the default app, and so does `/open` for the last file.
@@ -458,6 +469,10 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const loads = useRef(0)
   const [missingKey, setMissingKey] = useState<string>()
   const [choices, setChoices] = useState<Choices>()
+  /** What voice input does now. `undefined` while it does nothing. */
+  const voice = useKeyState<VoiceState | undefined>(undefined)
+  /** The words of the last voice input, for the composer. */
+  const [dictation, setDictation] = useState<Dictation>()
   /** The rows that the composer and the approval bar take beyond one line. */
   const [extraRows, setExtraRows] = useState(0)
   const panesBox = useRef<BoxRenderable>(null)
@@ -521,7 +536,8 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const timelineWidth = isNarrow || !hasRightPane ? terminal.width : splitWidth
   const rightWidth = isNarrow ? terminal.width : terminal.width - splitWidth - PANE_GAP
   /** The rows of the panes in a terminal `height` rows high, when the composer and the bar have one line. */
-  const panesRowsFor = (height: number) => height - CHROME_ROWS - (isWaiting ? BAR_ROWS : 0)
+  const panesRowsFor = (height: number) =>
+    height - CHROME_ROWS - (isWaiting ? BAR_ROWS : 0) - (voice.value === undefined ? 0 : VOICE_ROWS)
   const paneRows = Math.max(PANE_FRAME_ROWS + 1, panesRowsFor(terminal.height) - extraRows)
   const innerRows = paneRows - PANE_FRAME_ROWS
   const timelineInner = Math.max(1, timelineWidth - PANE_FRAME_COLUMNS)
@@ -604,6 +620,76 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     switchTo(open).catch(report)
   }
 
+  /** Shows `text` as a row of the timeline. */
+  const notify = (text: string) => {
+    current.now().view.notice({ text })
+  }
+
+  /** Starts a recording. Esc can cancel it while the microphone starts. */
+  const startVoice = async () => {
+    voice.set({ step: 'starting' })
+    try {
+      const recording = await host.voice.start()
+      if (voice.now()?.step === 'starting') voice.set({ step: 'recording', recording })
+      else recording.cancel()
+    } catch (error) {
+      voice.set(undefined)
+      report(error)
+    }
+  }
+
+  /** Stops the recording, and puts the words in the input. A silent recording is not sent. */
+  const stopVoice = async (recording: Recording) => {
+    voice.set({ step: 'writing' })
+    try {
+      const clip = await recording.stop()
+      if (clip.silent) {
+        notify(`heddle heard nothing from ${clip.microphone}. Type /mic to pick another microphone.`)
+        return
+      }
+      const text = await host.voice.transcribe(clip.audio)
+      if (text === '') {
+        notify('heddle found no words in the recording.')
+        return
+      }
+      setDictation((last) => ({ id: (last?.id ?? 0) + 1, text }))
+      moveFocus('input')
+    } catch (error) {
+      report(error)
+    } finally {
+      voice.set(undefined)
+    }
+  }
+
+  /** ctrl+r: starts a recording, or stops it. While the microphone starts or the words come, it waits. */
+  const pressVoice = () => {
+    const state = voice.now()
+    if (state === undefined) startVoice().catch(report)
+    else if (state.step === 'recording') stopVoice(state.recording).catch(report)
+  }
+
+  /** `/mic`: the microphones to pick from. */
+  const showMicrophones = async () => {
+    const names = await host.voice.microphones()
+    if (names.length === 0) {
+      notify('heddle records the default input of this computer.')
+      return
+    }
+    const chosen = host.voice.microphone()
+    const items = names.map((name) => {
+      const item: PaletteItem = {
+        label: name === chosen ? `${name} (current)` : name,
+        run: () => {
+          host.voice.choose(name)
+          notify(`Voice input records with ${name} now.`)
+        },
+      }
+      return item
+    })
+    setChoices({ title: 'Microphone', items })
+    overlay.set('choices')
+  }
+
   const runLocal = (action: LocalAction) => {
     switch (action) {
       case 'sessions':
@@ -617,6 +703,9 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         return
       case 'help':
         openOverlay('palette')
+        return
+      case 'mic':
+        showMicrophones().catch(report)
         return
       case 'open': {
         const path = rows.findLast((row) => row.path !== undefined)?.path
@@ -772,6 +861,10 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
           key.preventDefault()
           toggleOverlay('palette')
           return
+        case 'r':
+          key.preventDefault()
+          pressVoice()
+          return
       }
     }
     // A key that the composer or a pane used is not for the app. An open
@@ -784,6 +877,14 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         moveFocus(nextFocus(focus.now(), hasRightPane))
         return
       case 'escape': {
+        // Esc cancels a recording, also while the microphone starts.
+        const state = voice.now()
+        if (state?.step === 'recording' || state?.step === 'starting') {
+          key.preventDefault()
+          if (state.step === 'recording') state.recording.cancel()
+          voice.set(undefined)
+          return
+        }
         // While it has the focus, the approval bar takes esc: it closes its reason input.
         const isBarFocused = isWaiting && focus.now() === 'input'
         if (isBarFocused) return
@@ -956,6 +1057,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
           focused={isFocusable && focus.value === 'input'}
         />
       ) : null}
+      {voice.value === undefined ? null : <VoiceBar state={voice.value} />}
       <Composer
         commands={commands}
         focused={isFocusable && !isWaiting && focus.value === 'input'}
@@ -963,6 +1065,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         lists={lists}
         history={history}
         paths={paths}
+        dictation={dictation}
         onSubmit={submitTyped}
       />
       <Hints hints={hints} />

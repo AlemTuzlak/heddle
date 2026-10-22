@@ -15,6 +15,7 @@ import { createSessionView } from '@tanstack/ai-harness/view'
 import { defineAIPersistence } from '@tanstack/ai-persistence'
 import { KEY_PROVIDERS, MODELS, createHarness, type ModelChoice } from './harness'
 import { mediaBlobs } from './media'
+import { createVoice, type Voice } from './voice'
 import { CONTAINER_ROOT, createSandbox } from './sandbox'
 import { watchChanges } from './state/changes'
 import { openSqliteStores } from './store/sqlite'
@@ -83,6 +84,12 @@ export interface Heddle {
   folder: string
   /** Opens the file `path` with the default app of the system. It throws when the file does not exist. */
   openFile(path: string): void
+  /**
+   * Voice input. The microphone choice is in `~/.heddle/voice.json`. The
+   * words use the OpenAI key, else the xAI key: from `/connect`, else from
+   * the environment.
+   */
+  voice: Voice
   /**
    * The lines that the user sent, oldest first, the newest 200 of all
    * folders. heddle keeps them in `~/.heddle/history.json`.
@@ -244,7 +251,8 @@ function openFile(path: string) {
  * - The sessions and the keys are in `<home>/.heddle/heddle.db`, and the log
  *   file is `<home>/.heddle/logs/heddle.log`. heddle makes the folders.
  * - The files that agents make, such as images, are saved in
- *   `<root>/heddle-media/`.
+ *   `<root>/heddle-media/`. The microphone of voice input is in
+ *   `<home>/.heddle/voice.json`.
  * - The harness of each place is made when a session first uses it: `local`
  *   for the folder, and `docker` with one sandbox that the docker sessions
  *   share.
@@ -301,6 +309,18 @@ export async function startHeddle(options: {
     const saved = await readCredential(stores.credentials, { userId: USER.id }, choice.provider)
     return saved?.type === 'api_key'
   }
+  /** The key of the provider `id` that `/connect` saved, else the environment variable `env`. */
+  const keyOf = async (id: string, env: string) => {
+    const saved = await readCredential(stores.credentials, { userId: USER.id }, id)
+    if (saved?.type === 'api_key') return saved.value
+    const value = process.env[env] ?? ''
+    return value === '' ? undefined : value
+  }
+  const voice = createVoice({
+    file: join(dataDir, 'voice.json'),
+    logger,
+    keys: async () => ({ openai: await keyOf('openai', 'OPENAI_API_KEY'), grok: await keyOf('grok', 'XAI_API_KEY') }),
+  })
   /**
    * The model of the config, else the first model whose provider has a key.
    * With no key at all, the first model: the first message then says how to add a key.
@@ -522,6 +542,7 @@ export async function startHeddle(options: {
     },
     folder: root,
     openFile,
+    voice,
     history: {
       lines: () => historyLines,
       add: (line) => {

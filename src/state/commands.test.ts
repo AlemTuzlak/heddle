@@ -169,7 +169,7 @@ describe('suggest', () => {
   })
 
   test('a name with the text in it comes after the names that start with it', () => {
-    expect(suggest('/m', COMMANDS).map((row) => row.label)).toEqual(['/model', '/compact'])
+    expect(suggest('/m', COMMANDS).map((row) => row.label)).toEqual(['/mic', '/model', '/compact'])
     expect(suggest('/del', COMMANDS).map((row) => row.label)).toEqual(['/model'])
   })
 

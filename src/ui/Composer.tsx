@@ -1,7 +1,7 @@
 import type { KeyBinding, TextareaRenderable } from '@opentui/core'
 import { useKeyboard, useTerminalDimensions } from '@opentui/react'
 import type { ViewCommand } from '@tanstack/ai-harness/view'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { suggest, type Suggestion } from '../state/commands'
 import { cutEnd, padWidth, widest } from '../utils'
 import { isPlain, useKeyState } from './keys'
@@ -47,6 +47,12 @@ const KEY_BINDINGS: Array<KeyBinding> = [
  * (ctrl+j in an old terminal) adds a line, so it is not here.
  */
 const SEND_KEYS: ReadonlySet<string> = new Set(['return', 'kpenter'])
+
+/** Words that voice input wrote down. A new `id` puts `text` in the input once. */
+export interface Dictation {
+  id: number
+  text: string
+}
 
 /** The selected row of the popup, and the text that the row was selected for. */
 interface Picked {
@@ -162,6 +168,7 @@ function Popup({ rows, index, labelWidth, width }: {
  *   folders. Enter and tab put the path in the input.
  * - Without the popup, ↑ on the first line shows the line that was sent
  *   before, and ↓ on the last line the line after it.
+ * - A new `dictation` goes at the end of the text, after a space. It does not send.
  *
  * The composer is 3 rows high for one line, and 8 rows high for 6 lines. The
  * popup takes no rows of the layout. It draws over at most 8 rows above the
@@ -182,6 +189,7 @@ function Popup({ rows, index, labelWidth, width }: {
  * @param lists The names of the commands that open a list of choices, such as `model`.
  * @param history The lines that the user sent, oldest first.
  * @param paths The rows of an `@` path at the end of a text, from `pathRows`.
+ * @param dictation The words of the last voice input.
  * @param onSubmit Called with the text that the user sends.
  * @example
  * <Composer
@@ -198,6 +206,7 @@ export function Composer({
   lists = NO_LISTS,
   history = NO_HISTORY,
   paths = noPaths,
+  dictation,
   onSubmit,
 }: {
   commands: ReadonlyArray<ViewCommand>
@@ -206,6 +215,7 @@ export function Composer({
   lists?: ReadonlySet<string>
   history?: ReadonlyArray<string>
   paths?: (text: string) => ReadonlyArray<Suggestion>
+  dictation?: Dictation
   onSubmit(text: string): void
 }) {
   const terminal = useTerminalDimensions()
@@ -261,6 +271,16 @@ export function Composer({
     field.replaceText(insert)
     field.gotoBufferEnd()
   }
+
+  // Each new dictation goes at the end of the text, after a space.
+  useEffect(() => {
+    const field = input.current
+    if (dictation === undefined || field === null) return
+    const before = field.plainText
+    const gap = before === '' || /\s$/.test(before) ? '' : ' '
+    field.replaceText(`${before}${gap}${dictation.text}`)
+    field.gotoBufferEnd()
+  }, [dictation])
 
   const onContentChange = () => {
     const value = input.current?.plainText ?? ''

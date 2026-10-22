@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import type { SyntaxStyle } from '@opentui/core'
+import type { MockInput } from '@opentui/core/testing'
 import { useRenderer } from '@opentui/react'
 import type { PermissionRule, ProviderKeyStatus } from '@tanstack/ai-harness/plugins'
 import { EFFORTS } from '../effort'
@@ -20,6 +21,7 @@ import { App, type AppHost, type AppSession } from './App'
 import type { SessionRow } from './SessionPicker'
 import { ESCAPE_WAIT_MS, mount } from './test-utils'
 import { createSyntaxStyle } from './theme'
+import type { Voice } from '../voice'
 
 /** The tools root of the fake sessions. */
 const ROOT = '/work'
@@ -201,10 +203,50 @@ function createSession(
 type FakeSession = ReturnType<typeof createSession>
 
 /**
+ * A voice input that hears `words`, or nothing when `silent` is true.
+ * `calls` keeps each step: `start`, `stop`, `cancel`, `transcribe`, and
+ * `choose <name>`.
+ */
+function createVoice(options: { words?: string; silent?: boolean; microphones?: Array<string> } = {}) {
+  const calls: Array<string> = []
+  let chosen: string | undefined
+  const microphone = 'Microphone (Test)'
+  const voice: Voice = {
+    microphones: async () => options.microphones ?? [],
+    microphone: () => chosen,
+    choose: (name) => {
+      chosen = name
+      calls.push(`choose ${name}`)
+    },
+    start: async () => {
+      calls.push('start')
+      return {
+        microphone,
+        level: () => 3000,
+        stop: async () => {
+          calls.push('stop')
+          return { audio: new Uint8Array([1, 2]), silent: options.silent ?? false, microphone }
+        },
+        cancel: () => calls.push('cancel'),
+      }
+    },
+    transcribe: async () => {
+      calls.push('transcribe')
+      return options.words ?? 'fix the add test'
+    },
+  }
+  return { voice, calls }
+}
+
+/**
  * A host that lists `rows`, and opens the sessions of `sessions` by id.
  * `calls` keeps each call of open, fork, and rename.
  */
-function createHost(rows: ReadonlyArray<SessionRow>, sessions: ReadonlyArray<FakeSession> = []) {
+function createHost(
+  rows: ReadonlyArray<SessionRow>,
+  sessions: ReadonlyArray<FakeSession> = [],
+  voice: Voice = createVoice().voice,
+) {
   const calls: Array<HostCall> = []
   const host: AppHost = {
     listSessions: async () => [...rows],
@@ -227,6 +269,7 @@ function createHost(rows: ReadonlyArray<SessionRow>, sessions: ReadonlyArray<Fak
     openFile: (path) => {
       calls.push({ action: 'openFile', path })
     },
+    voice,
   }
   return { host, calls }
 }
@@ -837,5 +880,69 @@ describe('App media', () => {
     })
     expect(calls).toEqual([{ action: 'openFile', path: IMAGE_PATH }])
     expect(fake.calls).toEqual([])
+  })
+})
+
+describe('App voice', () => {
+  const pressVoice = (keys: MockInput) => keys.pressKey('r', { ctrl: true })
+  /** The fake recording starts, stops, and writes in a few steps after the key. */
+  const VOICE_WAIT_MS = 20
+
+  test('ctrl+r records, and ctrl+r again puts the words in the input', async () => {
+    const fake = createSession('thread-1')
+    const voice = createVoice({ words: 'fix the add test' })
+    await using app = await mountApp(fake, { host: createHost([], [], voice.voice).host })
+    await app.input(async (keys) => {
+      await keys.typeText('please')
+      pressVoice(keys)
+    }, VOICE_WAIT_MS)
+    expect(app.lineWith('● Recording')).toMatch(/● Recording {2}▮+▯* {2}Microphone \(Test\) {3}ctrl\+r stop {3}esc cancel/)
+    await app.input(pressVoice, VOICE_WAIT_MS)
+    expect(voice.calls).toEqual(['start', 'stop', 'transcribe'])
+    // The words go after the typed text. Nothing is sent before enter.
+    expect(app.lineWith('›')).toMatch(/› please fix the add test +│$/)
+    expect(app.frame()).not.toContain('Recording')
+    expect(fake.calls).toEqual([])
+    await app.input((keys) => keys.pressEnter())
+    expect(fake.calls).toEqual([{ action: 'send', text: 'please fix the add test' }])
+  })
+
+  test('esc cancels a recording', async () => {
+    const fake = createSession('thread-1')
+    const voice = createVoice()
+    await using app = await mountApp(fake, { host: createHost([], [], voice.voice).host })
+    await app.input(pressVoice, VOICE_WAIT_MS)
+    await app.input((keys) => keys.pressEscape(), ESCAPE_WAIT_MS)
+    expect(voice.calls).toEqual(['start', 'cancel'])
+    expect(app.frame()).not.toContain('Recording')
+  })
+
+  test('a silent recording is not written down', async () => {
+    const fake = createSession('thread-1')
+    const voice = createVoice({ silent: true })
+    await using app = await mountApp(fake, { host: createHost([], [], voice.voice).host })
+    await app.input(pressVoice, VOICE_WAIT_MS)
+    await app.input(pressVoice, VOICE_WAIT_MS)
+    expect(voice.calls).toEqual(['start', 'stop'])
+    expect(fake.calls).toEqual([
+      { action: 'notice', text: 'heddle heard nothing from Microphone (Test). Type /mic to pick another microphone.' },
+    ])
+  })
+
+  test('/mic lists the microphones, and enter picks one', async () => {
+    const fake = createSession('thread-1')
+    const voice = createVoice({ microphones: ['Microphone (HyperX QuadCast)', 'Microphone (Camo)'] })
+    await using app = await mountApp(fake, { host: createHost([], [], voice.voice).host })
+    await app.input(async (keys) => {
+      await keys.typeText('/mic')
+      keys.pressEnter()
+    })
+    expect(app.frame()).toContain('Microphone (HyperX QuadCast)')
+    await app.input((keys) => {
+      keys.pressArrow('down')
+      keys.pressEnter()
+    })
+    expect(voice.calls).toEqual(['choose Microphone (Camo)'])
+    expect(fake.calls).toEqual([{ action: 'notice', text: 'Voice input records with Microphone (Camo) now.' }])
   })
 })

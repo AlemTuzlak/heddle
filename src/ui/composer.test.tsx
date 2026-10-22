@@ -206,8 +206,8 @@ describe('Composer popup', () => {
     await screen.input((keys) => keys.typeText('/'))
     const rows = rowsOf(screen.frame())
     const input = rows.findIndex((row) => row.includes('› /'))
-    // Just above the input: the popup with the first 6 of the 11 commands,
-    // over the text above the composer. The connect commands are one row.
+    // Just above the input: the popup with the first 6 commands, over the
+    // text above the composer. The connect commands are one row.
     expect(rows[input - 10]).toBe(FILLER)
     expect(rows[input - 9]).toMatch(/^╭─+╮$/)
     expect(rows.slice(input - 8, input - 2)).toEqual([
@@ -216,7 +216,7 @@ describe('Composer popup', () => {
       expect.stringMatching(/^│ {3}\/exit +Quit heddle +│$/),
       expect.stringMatching(/^│ {3}\/goal +Work until a goal is met +│$/),
       expect.stringMatching(/^│ {3}\/help +Show the commands +│$/),
-      expect.stringMatching(/^│ {3}\/mode +Show or switch the mode +│$/),
+      expect.stringMatching(/^│ {3}\/mic +Pick the microphone for voice input +│$/),
     ])
     expect(rows[input - 2]).toMatch(/^╰─+╯$/)
     expect(screen.frame()).not.toContain('/model')
@@ -240,9 +240,10 @@ describe('Composer popup', () => {
     await using screen = await mountComposer()
     await screen.input(async (keys) => {
       await keys.typeText('/')
-      for (let step = 0; step < 10; step += 1) keys.pressArrow('down')
+      // More downs than rows: down on the last row does nothing.
+      for (let step = 0; step < 20; step += 1) keys.pressArrow('down')
     })
-    // The last of the 11 commands is selected, and the first ones are gone.
+    // The last command is selected, and the first ones are gone.
     expect(screen.lineWith('▎')).toContain('▎ /todos')
     expect(screen.frame()).not.toContain('/compact')
   })

@@ -120,6 +120,7 @@ These keys work everywhere:
 | `esc` | Stop the turn that runs. If the right pane shows a subagent, go back to the changes. |
 | `ctrl+o` | Open or close the session picker. |
 | `ctrl+k` | Open or close the command palette. |
+| `ctrl+r` | Start a voice recording. Press `ctrl+r` again to stop it. See [Talk to heddle](#talk-to-heddle). |
 | `ctrl+c` two times | Quit. Press it two times in 1 second. |
 
 In the input:
@@ -180,6 +181,7 @@ heddle has these commands of its own:
 | `/quit` or `/exit` | Quit heddle. |
 | `/help` | Open the command palette. |
 | `/open` | Open the last file that an agent made, with the default app of your system. |
+| `/mic` | Pick the microphone for voice input from a list. |
 
 The agent has more commands. You use these the most:
 
@@ -217,6 +219,19 @@ Give heddle a key in one of two ways:
 - `/model` shows the models, and marks the model of the session with `(current)`. Pick one, or type `/model sonnet`. The new model applies from the next turn.
 - `/keys` shows where each key comes from. `/disconnect` lists the saved keys, and removes the key that you pick.
 - heddle uses a small model for titles, for the summaries of `/compact`, and for goal checks. It is `haiku`, `luna`, or `grok`: the small model of the provider of the `model` in your config. If you have only an OpenAI key or an xAI key, set `model` in a config file.
+
+## Talk to heddle
+
+1. Press `ctrl+r`, and talk. The line above the input shows `● Recording`, a level meter, and the microphone.
+2. Press `ctrl+r` again. heddle writes down your words, and puts them in the input, after the text that you typed.
+3. Fix the words if needed, then press `enter` to send.
+
+`esc` cancels a recording.
+
+- The first recording listens on all your microphones, and keeps the one that heard you the clearest. It leaves out capture cards and virtual inputs. `/mic` lists the microphones, and you can pick another one. heddle keeps the choice in `~/.heddle/voice.json`. On macOS and Linux, heddle records the default input.
+- heddle does not send a silent recording, for example from a muted microphone. It says `heddle heard nothing from <microphone>`.
+- OpenAI `gpt-4o-transcribe` writes down the words when you have an OpenAI key. Else xAI `grok-stt` does it with your xAI key. The keys come from `/connect`, else from `OPENAI_API_KEY` or `XAI_API_KEY`.
+- Voice input needs `ffmpeg` on the PATH.
 
 ## Images and videos
 
@@ -439,6 +454,7 @@ If heddle stopped without a clean quit, for example after a crash, wait 5 second
 | `~/.heddle/logs/heddle.log` | The log, with the details of each error. heddle leaves out each field whose name has `key`, `token`, `secret`, or `password`. |
 | `~/.heddle/snapshots/` | The file snapshots of local sessions, for `/undo`. A sandbox session keeps them in its container. |
 | `~/.heddle/history.json` | The last 200 lines that you sent, for `↑` in the input. |
+| `~/.heddle/voice.json` | The microphone of voice input. |
 | `<project>/heddle-media/` | The images and videos that agents made in the project. |
 | `~/.heddle/config.json` | Your config for all projects. |
 | `~/.heddle/agents/` | Your own agents. Each `.md` file is an agent: the file name is its name, and the text is its system prompt. `<project>/.heddle/agents/` has the agents of one project. |
