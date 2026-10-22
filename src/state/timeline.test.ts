@@ -117,14 +117,21 @@ const counts = new Map([
 const sessionRows = buildRows(session, { ...options, counts })
 
 describe('buildRows', () => {
-  test('user and assistant rows', () => {
-    expect(sessionRows.slice(0, 2)).toEqual([
+  test('user, reasoning, and assistant rows', () => {
+    expect(sessionRows.slice(0, 3)).toEqual([
       {
         id: 'user-0',
         kind: 'user',
         depth: 0,
         title: 'you',
         text: 'The add test fails. Fix it.',
+      },
+      {
+        id: 'turn-1:0',
+        kind: 'reasoning',
+        depth: 0,
+        title: 'thinking',
+        text: 'The test calls add.',
       },
       {
         id: 'turn-1:1',
@@ -498,6 +505,8 @@ describe('layoutLines', () => {
       '●  you',
       '│  The add test fails. Fix it.',
       '│',
+      '│  thinking   The test calls add.',
+      '│',
       '●  opus   I will read the code and the test.',
       '│  ◇ program   read 2 files',
       '├─╮',
@@ -580,5 +589,41 @@ describe('layoutLines', () => {
       expect(Bun.stringWidth(line)).toBeLessThanOrEqual(4)
     }
     expect(layoutLines(sessionRows, 0)).toEqual([])
+  })
+})
+
+describe('markdown and reasoning', () => {
+  const answer = [
+    '# Fix',
+    'The **add** test fails. Run `bun test`.',
+    '- one',
+    '```ts',
+    'add(1, 2)',
+    '```',
+  ].join('\n')
+
+  test('an answer shows as markdown, and the marks do not show', () => {
+    const rows = buildRows([assistant('a1', [textPart(answer)])], options)
+    const lines = layoutLines(rows, 60)
+    expect(plain(lines).slice(0, 5)).toEqual([
+      '●  opus   Fix',
+      '│         The add test fails. Run bun test.',
+      '│         • one',
+      '│           add(1, 2)',
+      '┊',
+    ])
+    const segments = lines.flatMap((line) => line.segments)
+    expect(segments.find((segment) => segment.text === 'Fix')?.bold).toBe(true)
+    expect(segments.find((segment) => segment.text === 'add')?.bold).toBe(true)
+    expect(segments.find((segment) => segment.text === 'bun test')?.fg).toBe(color.keyword)
+  })
+
+  test('the reasoning of a model is a muted italic row', () => {
+    const parts: Array<ViewPart> = [{ type: 'reasoning', text: 'Check the test first.' }, textPart('Done.')]
+    const rows = buildRows([assistant('a1', parts)], options)
+    expect(rows.map((row) => row.kind)).toEqual(['reasoning', 'assistant'])
+    const line = lineAt(layoutLines(rows, 60), '│  thinking')
+    const text = line.segments.find((segment) => segment.text.includes('Check the test first.'))
+    expect(text).toMatchObject({ fg: color.muted, italic: true })
   })
 })

@@ -102,8 +102,8 @@ From the top:
 
 | Part | What it shows |
 | --- | --- |
-| Header | The session title, the model and the agent, `local` or `docker` with the sync state, the context meter, and the cost. While a goal runs, it also shows the goal. `no key` shows when the model has no API key. |
-| Session pane | The timeline. `●` starts a message. `◇` is a tool that reads, and `◆` is a tool that writes. A subagent branches off at `├─╮` and comes back at `├─╯`. |
+| Header | The session title, the model, the effort, and the agent, `local` or `docker` with the sync state, the context meter, the tokens in and out with the number of model calls, and the cost. While a goal runs, it also shows the goal. `no key` shows when the model has no API key. |
+| Session pane | The timeline. `●` starts a message, and the answers show as markdown. `thinking` rows show the reasoning of the model in muted italic. `◇` is a tool that reads, and `◆` is a tool that writes. A subagent branches off at `├─╮` and comes back at `├─╯`. |
 | Changes pane | The files that the session changed, with their `+` and `−` line counts. Under them is the diff of one file. |
 | Approval bar | A question from heddle. It shows only while heddle waits for your answer. |
 | Input and key hints | You type here. The last row shows the keys that work now. |
@@ -132,6 +132,8 @@ In the input:
 | `↑` `↓`, then `enter` | Pick a command, and run it. A command that needs text, such as `/goal`, goes in the input, so you can type the text. |
 | `tab` | Put the selected command in the input, to type more after it. |
 | `esc` | Close the list of commands. |
+| `@` | Show the files and folders of the project that start with what you type after `@`. `enter` or `tab` puts the path in the input. A folder then shows what is in it. The agent reads the file with its tools. |
+| `↑` `↓` with no list open | Go back through the lines that you sent. heddle keeps the last 200 lines of all your projects. |
 
 When heddle asks for approval:
 
@@ -186,6 +188,7 @@ The agent has more commands. You use these the most:
 | `/goal <text>` | Work until the goal is met. `/goal stop` stops it. |
 | `/undo` | Undo the last turn: its file changes and its messages. `/redo` brings them back. |
 | `/mode` | Pick the permission mode from a list: `default`, `plan`, `acceptEdits`, or `bypass`. `acceptEdits` does not ask for edits. `bypass` does not ask at all. |
+| `/effort` | Pick how hard the model thinks, from the levels of the model. `default` lets the model decide. It applies from the next turn. |
 
 The list of commands also shows the others, such as `/compact` and `/usage`.
 
@@ -415,6 +418,7 @@ If heddle stopped without a clean quit, for example after a crash, wait 5 second
 | `~/.heddle/heddle.db` | The sessions, the rules that `a` saved, and your API keys and OAuth tokens. The keys and the tokens are plain text. |
 | `~/.heddle/logs/heddle.log` | The log, with the details of each error. heddle leaves out each field whose name has `key`, `token`, `secret`, or `password`. |
 | `~/.heddle/snapshots/` | The file snapshots of local sessions, for `/undo`. A sandbox session keeps them in its container. |
+| `~/.heddle/history.json` | The last 200 lines that you sent, for `↑` in the input. |
 | `~/.heddle/config.json` | Your config for all projects. |
 | `~/.heddle/agents/` | Your own agents. Each `.md` file is an agent: the file name is its name, and the text is its system prompt. `<project>/.heddle/agents/` has the agents of one project. |
 
@@ -424,7 +428,6 @@ heddle v1 does not have these features.
 
 In the input and the panes:
 
-- `@file` completion in the input.
 - A diff of all the changes since the session started. The changes pane shows one patch at a time.
 - LSP.
 - Image paste.

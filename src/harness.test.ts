@@ -233,3 +233,19 @@ test('models without the small model of the provider throws', () => {
     new Error('createHarness: models has no adapter for "haiku".'),
   )
 })
+
+test('/effort high sends the level with the next turn', async () => {
+  const levels: Array<unknown> = []
+  const opus = fakeText({ model: 'claude-opus-5-5' })
+  const answer = ({ request }: { request: { reasoning?: unknown } }) => {
+    levels.push(request.reasoning)
+    return { text: 'done' }
+  }
+  opus.setResponses([answer, answer])
+  await using opened = await openSession({ models: { ...fakeModels(), opus } })
+  await opened.session.send('hello')
+  await opened.session.runCommand({ name: 'effort', input: 'high' })
+  await opened.session.send('again')
+  // `default` sends no level.
+  expect(levels).toEqual([undefined, { level: 'high', summary: true }])
+})

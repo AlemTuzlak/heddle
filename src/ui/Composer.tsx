@@ -57,25 +57,45 @@ interface Picked {
 /** No command opens a list. */
 const NO_LISTS: ReadonlySet<string> = new Set()
 
+/** No sent lines yet. */
+const NO_HISTORY: ReadonlyArray<string> = []
+
+/** No `@` paths. */
+const noPaths = () => []
+
+/** The sent line that ↑↓ show, and the text that was in the input before the first ↑. */
+interface Recall {
+  index: number
+  draft: string
+}
+
 /** True while the user types a command name: the text starts with `/`, and has no space, tab, or new line yet. */
 function isCommandName(text: string) {
   return /^\/\S*$/.test(text)
 }
 
 /**
- * The rows of the popup for `text`, and the index of the selected row. There
- * are no rows when `text` is not a command name, or when esc closed the popup
- * for this text. A new text selects its first row.
+ * The rows of the popup for `text`, and the index of the selected row: the
+ * commands for a command name, else the paths for an `@` path at the end.
+ * There are no rows when esc closed the popup for this text. A new text
+ * selects its first row.
  *
  * @param text The text of the input.
  * @param commands The commands of the session.
+ * @param paths The rows of an `@` path at the end of a text.
  * @param closedFor The text for which esc closed the popup. It is empty when esc did not close it.
  * @param picked The selected row.
  */
-function popupOf(text: string, commands: ReadonlyArray<ViewCommand>, closedFor: string, picked: Picked) {
-  // A command name is never empty, so an empty `closedFor` closes nothing.
-  const isOpen = isCommandName(text) && text !== closedFor
-  const rows = isOpen ? suggest(text, commands) : []
+function popupOf(
+  text: string,
+  commands: ReadonlyArray<ViewCommand>,
+  paths: (text: string) => ReadonlyArray<Suggestion>,
+  closedFor: string,
+  picked: Picked,
+) {
+  // An empty `closedFor` closes nothing: an empty text has no rows.
+  const isOpen = text !== '' && text !== closedFor
+  const rows = !isOpen ? [] : isCommandName(text) ? suggest(text, commands) : paths(text)
   const index = picked.text === text ? picked.index : 0
   return { rows, index: Math.max(0, Math.min(index, rows.length - 1)) }
 }
@@ -136,7 +156,12 @@ function Popup({ rows, index, labelWidth, width }: {
  * - A text that starts with `/` and has no space yet opens the popup of the
  *   matching commands, just above the input. ↑↓ move the selection. Enter
  *   runs the selected command, and tab completes the text, to type the input
- *   of the command. Esc closes the popup until the next edit.
+ *   of the command. A command that needs text, such as `/goal`, goes in the
+ *   input on enter too. Esc closes the popup until the next edit.
+ * - An `@` path at the end of the text opens the popup of the files and the
+ *   folders. Enter and tab put the path in the input.
+ * - Without the popup, ↑ on the first line shows the line that was sent
+ *   before, and ↓ on the last line the line after it.
  *
  * The composer is 3 rows high for one line, and 8 rows high for 6 lines. The
  * popup takes no rows of the layout. It draws over at most 8 rows above the
@@ -155,6 +180,8 @@ function Popup({ rows, index, labelWidth, width }: {
  * @param focused True while the composer has the keys.
  * @param placeholder The text that shows while the input is empty.
  * @param lists The names of the commands that open a list of choices, such as `model`.
+ * @param history The lines that the user sent, oldest first.
+ * @param paths The rows of an `@` path at the end of a text, from `pathRows`.
  * @param onSubmit Called with the text that the user sends.
  * @example
  * <Composer
@@ -164,11 +191,21 @@ function Popup({ rows, index, labelWidth, width }: {
  *   onSubmit={(text) => run(parseInput(text, commands))}
  * />
  */
-export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onSubmit }: {
+export function Composer({
+  commands,
+  focused,
+  placeholder,
+  lists = NO_LISTS,
+  history = NO_HISTORY,
+  paths = noPaths,
+  onSubmit,
+}: {
   commands: ReadonlyArray<ViewCommand>
   focused: boolean
   placeholder?: string
   lists?: ReadonlySet<string>
+  history?: ReadonlyArray<string>
+  paths?: (text: string) => ReadonlyArray<Suggestion>
   onSubmit(text: string): void
 }) {
   const terminal = useTerminalDimensions()
@@ -179,6 +216,8 @@ export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onS
   const picked = useKeyState({ text: '', index: 0 })
   // The text for which esc closed the popup. It is empty when esc did not close it.
   const closedFor = useKeyState('')
+  // The sent line that the input shows after ↑, until the next send.
+  const recall = useKeyState<Recall | undefined>(undefined)
 
   /** Calls `onSubmit` with the text, then clears the input. A blank text sends nothing. */
   const send = () => {
@@ -186,8 +225,33 @@ export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onS
     if (field === null) return
     const value = field.plainText
     if (value.trim() === '') return
+    recall.set(undefined)
     onSubmit(value)
     field.clear()
+  }
+
+  /**
+   * ↑ on the first line shows the sent line before, and ↓ on the last line
+   * the sent line after. After the newest line, ↓ brings back the text that
+   * was in the input. Gives true when it used the key.
+   */
+  const moveInHistory = (isUp: boolean) => {
+    const field = input.current
+    if (field === null) return false
+    const row = field.visualCursor.visualRow
+    const isAtEdge = isUp ? row === 0 : row === field.virtualLineCount - 1
+    const at = recall.now()
+    if (!isAtEdge || (!isUp && at === undefined)) return false
+    const index = (at?.index ?? history.length) + (isUp ? -1 : 1)
+    if (index < 0) return false
+    const draft = at?.draft ?? field.plainText
+    const text = index < history.length ? history[index] : draft
+    recall.set(index < history.length ? { index, draft } : undefined)
+    // A sent `/model` does not open the popup.
+    closedFor.set(text)
+    field.replaceText(text)
+    field.gotoBufferEnd()
+    return true
   }
 
   /** Puts `insert` in the input, with the cursor at its end. Undo brings back the typed text. */
@@ -211,18 +275,28 @@ export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onS
     const field = input.current
     if (!isFree || field === null) return
     const current = field.plainText
-    const { rows, index } = popupOf(current, commands, closedFor.now(), picked.now())
+    const { rows, index } = popupOf(current, commands, paths, closedFor.now(), picked.now())
     const row = rows[index]
-    // Without the popup, the textarea gets the key.
-    if (row === undefined) return
+    // Without the popup, ↑↓ go through the sent lines, and the textarea gets the other keys.
+    if (row === undefined) {
+      const isArrow = key.name === 'up' || key.name === 'down'
+      if (isArrow && moveInHistory(key.name === 'up')) key.preventDefault()
+      return
+    }
     if (SEND_KEYS.has(key.name)) {
       key.preventDefault()
+      // A path goes in the input. A folder then shows what is in it.
+      if (row.label.startsWith('@')) {
+        complete(row.insert)
+        return
+      }
       // A command that needs text goes in the input, such as `/goal `. Enter
       // runs the others at once, and a command with a list opens its list.
       if (row.insert.endsWith(' ') && !lists.has(row.label.slice(1))) {
         complete(row.insert)
         return
       }
+      recall.set(undefined)
       onSubmit(row.insert.trim())
       field.clear()
       return
@@ -247,9 +321,10 @@ export function Composer({ commands, focused, placeholder, lists = NO_LISTS, onS
     }
   })
 
-  const popup = popupOf(text, commands, closedFor.value, picked.value)
+  const popup = popupOf(text, commands, paths, closedFor.value, picked.value)
   const isPopupShown = focused && popup.rows.length > 0
-  const labelWidth = widest(suggest('/', commands).map((row) => row.label))
+  // The labels of the commands keep one width while the user types. A path is as wide as the paths.
+  const labelWidth = widest((isCommandName(text) ? suggest('/', commands) : popup.rows).map((row) => row.label))
   return (
     <box flexDirection="column" flexShrink={0}>
       {isPopupShown ? (

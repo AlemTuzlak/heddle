@@ -121,9 +121,13 @@ function hasSpinner(line: Line) {
   return line.segments.some((segment) => segment.text === SPINNER)
 }
 
-/** The OpenTUI text attributes of a segment: bold and dim. */
+/** The OpenTUI text attributes of a segment: bold, dim, and italic. */
 function attributesOf(segment: Segment) {
-  return (segment.bold ? TextAttributes.BOLD : 0) | (segment.dim ? TextAttributes.DIM : 0)
+  return (
+    (segment.bold ? TextAttributes.BOLD : 0) |
+    (segment.dim ? TextAttributes.DIM : 0) |
+    (segment.italic ? TextAttributes.ITALIC : 0)
+  )
 }
 
 /** One line of the window. The selected row has the quiet background. */

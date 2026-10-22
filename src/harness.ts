@@ -22,7 +22,8 @@ import { createQuickJSIsolateDriver } from '@tanstack/ai-isolate-quickjs'
 import { mcp } from '@tanstack/ai-mcp/harness'
 import { createOpenaiChat } from '@tanstack/ai-openai'
 import { openaiByok } from '@tanstack/ai-openai/byok'
-import type { AnyTextAdapter, KeyedAdapter } from '@tanstack/ai'
+import { effortPicker } from './effort'
+import type { AnyTextAdapter, KeyedAdapter, ReasoningLevel } from '@tanstack/ai'
 import type { HarnessPlugin } from '@tanstack/ai-harness'
 import type { WorkspaceBinder } from '@tanstack/ai-harness/plugins/coding'
 import type { HeddleConfig } from './config'
@@ -46,7 +47,16 @@ export interface ModelChoice {
    * because the adapters do not export it. Read it from them when they do.
    */
   contextWindow: number
+  /**
+   * The reasoning levels of the model, for `/effort`.
+   * ponytail: copied from `reasoning` in each adapter's `model-meta.ts`, for
+   * the same reason as `contextWindow`.
+   */
+  efforts: ReadonlyArray<ReasoningLevel>
 }
+
+/** The levels of most of the models. */
+const LOW_TO_MAX: ReadonlyArray<ReasoningLevel> = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // `as const` keeps each model id as it is: the adapter factories take only
 // the model ids that they know.
@@ -57,6 +67,7 @@ const CHOICES = [
     model: 'claude-opus-5-5',
     env: 'ANTHROPIC_API_KEY',
     contextWindow: 1_000_000,
+    efforts: LOW_TO_MAX,
   },
   {
     name: 'sonnet',
@@ -64,6 +75,7 @@ const CHOICES = [
     model: 'claude-sonnet-5-5',
     env: 'ANTHROPIC_API_KEY',
     contextWindow: 1_000_000,
+    efforts: LOW_TO_MAX,
   },
   {
     name: 'haiku',
@@ -71,6 +83,7 @@ const CHOICES = [
     model: 'claude-haiku-5-5',
     env: 'ANTHROPIC_API_KEY',
     contextWindow: 1_000_000,
+    efforts: ['off', ...LOW_TO_MAX],
   },
   {
     name: 'gpt',
@@ -78,6 +91,7 @@ const CHOICES = [
     model: 'gpt-6.1-sol',
     env: 'OPENAI_API_KEY',
     contextWindow: 1_050_000,
+    efforts: LOW_TO_MAX,
   },
   {
     name: 'luna',
@@ -85,6 +99,7 @@ const CHOICES = [
     model: 'gpt-6-luna',
     env: 'OPENAI_API_KEY',
     contextWindow: 1_050_000,
+    efforts: ['off', ...LOW_TO_MAX],
   },
   {
     name: 'grok',
@@ -92,6 +107,7 @@ const CHOICES = [
     model: 'grok-4.7',
     env: 'XAI_API_KEY',
     contextWindow: 500_000,
+    efforts: ['low', 'medium', 'high', 'xhigh'],
   },
 ] as const satisfies ReadonlyArray<ModelChoice>
 
@@ -102,7 +118,7 @@ const CHOICES = [
  * @example
  * ```ts
  * const choice = MODELS.find((each) => each.name === 'gpt')
- * // { name: 'gpt', provider: 'openai', model: 'gpt-6.1-sol', env: 'OPENAI_API_KEY', contextWindow: 1_050_000 }
+ * // { name: 'gpt', provider: 'openai', model: 'gpt-6.1-sol', env: 'OPENAI_API_KEY', contextWindow: 1_050_000, efforts: [...] }
  * ```
  */
 export const MODELS: ReadonlyArray<ModelChoice> = CHOICES
@@ -266,6 +282,7 @@ export function createHarness(options: {
     plugins: () => [
       providerKeys({ providers: KEY_PROVIDERS }),
       modelPicker({ choices: adapters, default: choice.name }),
+      effortPicker(),
       // The rules see the paths where the tools work.
       permissions({ root: place === 'docker' ? CONTAINER_ROOT : root }),
       workspaceTools(workspace ? { workspace } : { root }),

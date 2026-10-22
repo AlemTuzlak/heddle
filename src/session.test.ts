@@ -420,3 +420,14 @@ test('the log file has no secret', async () => {
   expect(log).toContain('heddle opened session')
   expect(log).not.toContain('sk-test-123')
 })
+
+test('the input history keeps each line once, the newest last, after a restart', async () => {
+  using folder = tempFolder()
+  await runAndQuit({ folder: folder.path }, async (heddle) => {
+    heddle.history.add('fix the add test')
+    heddle.history.add('/model')
+    heddle.history.add('fix the add test')
+  })
+  await using heddle = await start({ folder: folder.path })
+  expect(heddle.history.lines()).toEqual(['/model', 'fix the add test'])
+})

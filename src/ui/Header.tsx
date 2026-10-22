@@ -10,18 +10,29 @@ export interface HeaderProps {
   model: string
   /** The agent profile, for example `build`. */
   agent?: string
+  /** The effort of `/effort`, when it is not `default`. */
+  effort?: string
   /** Where the tools run. */
   place: 'local' | 'docker'
   /** The state of the copy back to the folder, in a Docker sandbox. */
   sync?: 'starting' | 'synced' | 'syncing' | 'conflict' | 'stopped'
   /** The part of the context window in use, from 0 to 1. */
   context?: number
+  /** The tokens that the model calls of the session took in and gave out, and the number of calls. */
+  tokens?: { input: number; output: number; calls: number }
   /** The cost of the session, in US dollars. */
   cost?: number
   /** The provider of the current model, when it has no API key. */
   missingKey?: string
   /** The other sessions of this run that wait for an answer, or that run. */
   others?: { waiting: number; running: number }
+}
+
+/** A count of tokens in at most 5 cells: `950`, `12.4k`, `1.2M`. */
+function tokenCount(count: number) {
+  if (count < 1000) return String(count)
+  if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`
+  return `${(count / 1_000_000).toFixed(1)}M`
 }
 
 /** `1 session`, `2 sessions`. */
@@ -67,9 +78,9 @@ function ContextMeter({ context }: { context: number }) {
  * - `◆ heddle`, then the session title. A long title is cut.
  * - The other sessions: `◌ 1 session needs you`, `● 2 sessions running`.
  * - The goal chip: `goal tests pass, round 2 of 20`.
- * - The model and the agent, then `no key` in yellow when `missingKey` is set.
+ * - The model, the effort, and the agent, then `no key` in yellow when `missingKey` is set.
  * - Where the tools run: `local`, or `docker` with the sync state.
- * - The context meter and the cost.
+ * - The context meter, the tokens in and out with the number of model calls, and the cost.
  *
  * Each part shows only when its prop is set.
  *
@@ -90,9 +101,11 @@ export function Header({
   goal,
   model,
   agent,
+  effort,
   place,
   sync,
   context,
+  tokens,
   cost,
   missingKey,
   others,
@@ -124,6 +137,7 @@ export function Header({
       ) : null}
       <text flexShrink={0} fg={color.muted} wrapMode="none">
         <span fg={color.linen}>{model}</span>
+        {effort ? `  effort ${effort}` : ''}
         {agent ? `  ${agent}` : ''}
       </text>
       {missingKey ? (
@@ -136,6 +150,11 @@ export function Header({
         {isSandbox ? <span fg={SYNC_COLOR[sync]}>{` ${sync}`}</span> : null}
       </text>
       {context === undefined ? null : <ContextMeter context={context} />}
+      {tokens === undefined ? null : (
+        <text flexShrink={0} fg={color.muted} wrapMode="none">
+          {`in ${tokenCount(tokens.input)}  out ${tokenCount(tokens.output)}  ${tokens.calls} ${tokens.calls === 1 ? 'call' : 'calls'}`}
+        </text>
+      )}
       {cost === undefined ? null : (
         <text flexShrink={0} fg={color.linen} wrapMode="none">
           {`$${cost.toFixed(2)}`}

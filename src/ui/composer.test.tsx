@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { useKeyboard } from '@opentui/react'
 import type { ViewCommand } from '@tanstack/ai-harness/view'
 import { useState } from 'react'
+import type { Suggestion } from '../state/commands'
 import { Composer } from './Composer'
 import { ESCAPE_WAIT_MS, mount } from './test-utils'
 import { color } from './theme'
@@ -60,7 +61,11 @@ const COMMANDS: ReadonlyArray<ViewCommand> = [
  * with `~`. ctrl+o takes the focus away and gives it back, as the session
  * picker of heddle does. `sent` keeps each text that the composer sends.
  */
-function Screen({ sent }: { sent: Array<string> }) {
+function Screen({ sent, history, paths }: {
+  sent: Array<string>
+  history?: ReadonlyArray<string>
+  paths?: (text: string) => ReadonlyArray<Suggestion>
+}) {
   const [focused, setFocused] = useState(true)
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'o') setFocused((value) => !value)
@@ -76,6 +81,8 @@ function Screen({ sent }: { sent: Array<string> }) {
         commands={COMMANDS}
         focused={focused}
         placeholder={PLACEHOLDER}
+        history={history}
+        paths={paths}
         onSubmit={(text) => sent.push(text)}
       />
     </box>
@@ -83,9 +90,12 @@ function Screen({ sent }: { sent: Array<string> }) {
 }
 
 /** Render the `Screen`. `sent` keeps each text that the composer sends. */
-async function mountComposer() {
+async function mountComposer(
+  options: { history?: ReadonlyArray<string>; paths?: (text: string) => ReadonlyArray<Suggestion> } = {},
+) {
   const sent: Array<string> = []
-  return Object.assign(await mount(<Screen sent={sent} />, SIZE), { sent })
+  const screen = <Screen sent={sent} history={options.history} paths={options.paths} />
+  return Object.assign(await mount(screen, SIZE), { sent })
 }
 
 /** The rows of a frame. */
@@ -319,5 +329,50 @@ describe('Composer popup', () => {
     expect(screen.frame()).not.toContain('Connect a model provider or a server')
     await screen.input((keys) => keys.pressEnter())
     expect(screen.sent).toEqual(['/connect a'])
+  })
+})
+
+describe('Composer history and paths', () => {
+  test('↑ shows the lines sent before, and ↓ comes back to the typed text', async () => {
+    await using screen = await mountComposer({ history: ['first', '/model'] })
+    await screen.input(async (keys) => {
+      await keys.typeText('draft')
+      keys.pressArrow('up')
+    })
+    // A sent command does not open the popup.
+    expect(screen.lineWith('›')).toMatch(/^│ › \/model +│$/)
+    expect(screen.frame()).not.toContain('Show or switch the model')
+    await screen.input((keys) => keys.pressArrow('up'))
+    expect(screen.lineWith('›')).toMatch(/^│ › first +│$/)
+    // There is no line before the first one.
+    await screen.input((keys) => keys.pressArrow('up'))
+    expect(screen.lineWith('›')).toMatch(/^│ › first +│$/)
+    await screen.input((keys) => {
+      keys.pressArrow('down')
+      keys.pressArrow('down')
+    })
+    expect(screen.lineWith('›')).toMatch(/^│ › draft +│$/)
+    await screen.input((keys) => keys.pressEnter())
+    expect(screen.sent).toEqual(['draft'])
+  })
+
+  test('enter on an @ path puts it in the input, and does not send', async () => {
+    const paths = (text: string) =>
+      text.endsWith('@s')
+        ? [{ label: '@src/', detail: 'folder', insert: `${text.slice(0, -1)}src/` }]
+        : text.endsWith('@src/')
+          ? [{ label: '@src/math.mjs', detail: '', insert: `${text}math.mjs ` }]
+          : []
+    await using screen = await mountComposer({ paths })
+    await screen.input(async (keys) => {
+      await keys.typeText('look at @s')
+      keys.pressEnter()
+    })
+    expect(screen.lineWith('▎')).toContain('▎ @src/math.mjs')
+    await screen.input((keys) => keys.pressEnter())
+    expect(screen.sent).toEqual([])
+    expect(screen.lineWith('›')).toMatch(/^│ › look at @src\/math\.mjs +│$/)
+    await screen.input((keys) => keys.pressEnter())
+    expect(screen.sent).toEqual(['look at @src/math.mjs '])
   })
 })

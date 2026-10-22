@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { SyntaxStyle } from '@opentui/core'
 import { useRenderer } from '@opentui/react'
 import type { PermissionRule, ProviderKeyStatus } from '@tanstack/ai-harness/plugins'
+import { EFFORTS } from '../effort'
 import type { FileChange } from '@tanstack/ai-harness/plugins/coding'
 import type {
   AgentPart,
@@ -53,7 +54,19 @@ const COMMANDS: ReadonlyArray<ViewCommand> = [
   // With a use in its description, as `/model <name>`: the list still opens on enter.
   { name: 'model', description: 'Show or switch the model: /model <name>', owner: 'tanstack/model-picker' },
   { name: 'permissions', description: 'List the saved rules', owner: 'tanstack/permissions' },
+  { name: 'effort', description: 'Show or set how hard the model thinks: /effort <level>', owner: 'heddle/effort' },
 ]
+
+/** The `effort` setting of heddle at `value`. */
+function effortSetting(value: string) {
+  const entry: ViewConfigEntry = {
+    key: 'effort',
+    owner: 'heddle/effort',
+    value,
+    option: { type: 'select', options: [...EFFORTS], default: 'default' },
+  }
+  return entry
+}
 
 /** The `mode` setting of `permissions()`, in the mode `default`. */
 const MODE_SETTING: ViewConfigEntry = {
@@ -207,6 +220,8 @@ function createHost(rows: ReadonlyArray<SessionRow>, sessions: ReadonlyArray<Fak
       calls.push({ action: 'rename', threadId, title })
     },
     onSessionsChange: () => () => {},
+    folder: ROOT,
+    history: { lines: () => [], add: () => {} },
   }
   return { host, calls }
 }
@@ -494,6 +509,38 @@ describe('App pickers', () => {
       keys.pressEnter()
     })
     expect(fake.calls).toEqual([{ action: 'notice', text: 'You have no saved keys. /connect saves one.' }])
+  })
+
+  test('/effort lists the levels of the model, and enter sets one', async () => {
+    const config = [...viewState('thread-1', {}).config, effortSetting('default')]
+    const fake = createSession('thread-1', { config })
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/effort')
+      keys.pressEnter()
+    })
+    expect(app.frame()).toContain('default (current)')
+    expect(app.lineWith('max')).toContain('Thinks the longest')
+    // opus has no `off` and no `minimal`.
+    expect(app.frame()).not.toContain('No thinking')
+    expect(app.frame()).not.toContain('Thinks very little')
+    await app.input(async (keys) => {
+      await keys.typeText('high')
+      keys.pressEnter()
+    })
+    expect(fake.calls).toEqual([{ action: 'command', name: 'effort', input: 'high' }])
+  })
+
+  test('the header shows the effort that the model gets, and the tokens', async () => {
+    const config = [...viewState('thread-1', {}).config, effortSetting('minimal')]
+    const total = { calls: 3, promptTokens: 12_400, completionTokens: 950, totalTokens: 13_350, cachedTokens: 0, cacheWriteTokens: 0 }
+    const usage = { total, byModel: {}, bySender: {}, bySource: {} }
+    const fake = createSession('thread-1', { config, usage })
+    await using app = await mountApp(fake)
+    const header = app.lineWith('◆ heddle')
+    // opus has no `minimal`, so it gets `low`.
+    expect(header).toContain('opus  effort low')
+    expect(header).toContain('in 12.4k  out 950  3 calls')
   })
 
   test('/help opens the command palette', async () => {

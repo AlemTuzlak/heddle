@@ -1,6 +1,7 @@
 // The app shell of heddle: it puts the panes together and routes the keys.
 import type { BoxRenderable, SyntaxStyle } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
+import { REASONING_LEVELS, clampReasoningLevel } from '@tanstack/ai'
 import {
   selectGoal,
   type Goal,
@@ -20,6 +21,7 @@ import { MODELS } from '../harness'
 import type { SyncState } from '../sandbox'
 import type { ChangesState, ChangesWatch } from '../state/changes'
 import { parseInput, suggest, type Input, type LocalAction } from '../state/commands'
+import { pathRows } from '../state/paths'
 import { activityOf, buildAgentRows, buildRows, layoutLines, type Row } from '../state/timeline'
 import { useView, useWatch, type ViewStore } from '../state/useView'
 import { isRecord, messageOf } from '../utils'
@@ -69,6 +71,10 @@ export interface AppHost {
   /** Copies the session `threadId`, and gives the id of the copy. */
   fork(threadId: string): Promise<string>
   rename(threadId: string, title: string): Promise<void>
+  /** The project folder. The `@` paths of the input start in it. */
+  folder: string
+  /** The lines that the user sent, oldest first. */
+  history: { lines(): ReadonlyArray<string>; add(line: string): void }
   /** Calls `listener` when a session runs, waits, stops, or gets a title. Gives the function that stops it. */
   onSessionsChange(listener: () => void): () => void
 }
@@ -139,6 +145,7 @@ const PLACEHOLDER = 'Ask heddle, or type / for a command'
 /** The plugin settings that the header shows. */
 const MODEL_SETTING = { owner: 'tanstack/model-picker', key: 'model' }
 const AGENT_SETTING = { owner: 'tanstack/agents', key: 'agent' }
+const EFFORT_SETTING = { owner: 'heddle/effort', key: 'effort' }
 
 /** The keys that work in each part. */
 const MOVE_HINTS: ReadonlyArray<Hint> = [
@@ -212,10 +219,35 @@ const MODE_DETAILS: Record<string, string> = {
   bypass: 'Everything runs. Nothing asks.',
 }
 
+/** What each choice of `/effort` does. */
+const EFFORT_DETAILS: Record<string, string> = {
+  default: 'The model decides',
+  off: 'No thinking',
+  minimal: 'Thinks very little',
+  low: 'Thinks a little',
+  medium: 'Thinks some',
+  high: 'Thinks longer',
+  xhigh: 'Thinks much longer',
+  max: 'Thinks the longest',
+}
+
 /** More about the choices of a setting, by setting key. */
 const CHOICE_DETAILS: Record<string, Record<string, string>> = {
   model: Object.fromEntries(MODELS.map((choice) => [choice.name, `${choice.provider}  ${choice.model}`])),
   mode: MODE_DETAILS,
+  effort: EFFORT_DETAILS,
+}
+
+/**
+ * The effort that the model `model` gets: the level of `/effort`, changed to
+ * the nearest level that the model has. `undefined` for `default`.
+ */
+function effortOf(config: ReadonlyArray<ViewConfigEntry>, model: string) {
+  const level = REASONING_LEVELS.find((each) => each === settingText(config, EFFORT_SETTING))
+  const efforts = MODELS.find((choice) => choice.name === model)?.efforts
+  if (level === undefined || efforts === undefined) return undefined
+  const levels = Object.fromEntries(efforts.map((each) => [each, each]))
+  return clampReasoningLevel({ levels, budget: false }, level)
 }
 
 /** A saved permission rule as one line: the tool, then the resource. */
@@ -226,11 +258,17 @@ function ruleText(rule: PermissionRule) {
 /**
  * The choices of the select setting `key`, such as `model` or `mode`. The
  * current value has `(current)`. A choice calls `choose` with its value.
+ * Only the values that `keep` keeps show.
  */
-function settingChoices(config: ReadonlyArray<ViewConfigEntry>, key: string, choose: (value: string) => void) {
+function settingChoices(
+  config: ReadonlyArray<ViewConfigEntry>,
+  key: string,
+  choose: (value: string) => void,
+  keep: (value: string) => boolean = () => true,
+) {
   const entry = config.find((item) => item.key === key)
   if (entry?.option.type !== 'select') return []
-  return entry.option.options.map((value) => {
+  return entry.option.options.filter(keep).map((value) => {
     const item: PaletteItem = {
       label: value === entry.value ? `${value} (current)` : value,
       detail: CHOICE_DETAILS[key]?.[value],
@@ -410,6 +448,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   /** The time of the first ctrl+c, while a second one quits. */
   const quitAt = useKeyState<number | undefined>(undefined)
   const [sessions, setSessions] = useState<ReadonlyArray<SessionRow>>([])
+  const [history, setHistory] = useState(() => host.history.lines())
   /** The ids of the sessions that the user opened in this run. The header counts the ones that still work. */
   const visited = useRef(new Set([first.threadId]))
   /** The number of the newest list load. An older load can end after it. */
@@ -428,6 +467,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const config = useView(view, (state) => state.config)
   const goal = useView(view, selectGoal)
   const cost = useView(view, (state) => state.usage?.total.cost)
+  const totals = useView(view, (state) => state.usage?.total)
   // `usage()` keeps the input tokens of the latest model call as `contextTokens`.
   const contextTokens = useView(view, (state) => {
     const usage = state.plugins['tanstack/usage']
@@ -622,7 +662,13 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         : { title: 'Disconnect', items, empty: 'You have no saved keys. /connect saves one.' }
       return picked
     }
-    const items = settingChoices(config, name, runWith(name))
+    // `/effort` shows only the levels of the model.
+    const efforts = MODELS.find((choice) => choice.name === settingText(config, MODEL_SETTING))?.efforts
+    const keep =
+      name === 'effort' && efforts !== undefined
+        ? (value: string) => value === 'default' || efforts.some((level) => level === value)
+        : undefined
+    const items = settingChoices(config, name, runWith(name), keep)
     if (items.length === 0) return undefined
     const picked: Choices = { title: name.charAt(0).toUpperCase() + name.slice(1), items }
     return picked
@@ -669,6 +715,15 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const submit = (text: string) => {
     run(parseInput(text, commands)).catch(report)
   }
+
+  /** A line from the input: it goes in the history, then runs. */
+  const submitTyped = (text: string) => {
+    host.history.add(text.trim())
+    setHistory(host.history.lines())
+    submit(text)
+  }
+
+  const paths = (text: string) => pathRows(text, host.folder)
 
   const pressQuit = () => {
     const now = renderer.clock.now()
@@ -808,6 +863,12 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         cost={cost}
         missingKey={missingKey}
         others={others}
+        effort={effortOf(config, model)}
+        tokens={
+          totals === undefined || totals.calls === 0
+            ? undefined
+            : { input: totals.promptTokens, output: totals.completionTokens, calls: totals.calls }
+        }
       />
       <box
         ref={panesBox}
@@ -881,7 +942,9 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         focused={isFocusable && !isWaiting && focus.value === 'input'}
         placeholder={PLACEHOLDER}
         lists={lists}
-        onSubmit={submit}
+        history={history}
+        paths={paths}
+        onSubmit={submitTyped}
       />
       <Hints hints={hints} />
       {overlay.value === 'sessions' ? (

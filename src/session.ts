@@ -2,7 +2,7 @@
 // of each place, and the sessions that the UI opens. The UI gets an
 // `OpenSession` for the session that it shows.
 
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readCredential } from '@tanstack/ai/byok/server'
 import { createHarnessHost } from '@tanstack/ai-harness'
@@ -77,6 +77,13 @@ export interface Heddle {
   fork(threadId: string): Promise<string>
   /** Gives the session `threadId` a new title. It throws `heddle has no session <id>.` for an unknown id. */
   rename(threadId: string, title: string): Promise<void>
+  /** The project folder. */
+  folder: string
+  /**
+   * The lines that the user sent, oldest first, the newest 200 of all
+   * folders. heddle keeps them in `~/.heddle/history.json`.
+   */
+  history: { lines(): ReadonlyArray<string>; add(line: string): void }
   /**
    * Calls `listener` when an open session starts or stops a run, waits for an
    * answer, or gets a new title. Gives the function that stops the calls.
@@ -93,6 +100,21 @@ export interface Heddle {
 type Place = OpenSession['place']
 
 type Harness = ReturnType<typeof createHarness>
+
+/** The most lines that the input history keeps. */
+const HISTORY_LIMIT = 200
+
+/** The lines of the history file, or none when there is no file yet. */
+function readHistory(file: string, logger: Logger) {
+  if (!existsSync(file)) return []
+  try {
+    const lines: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    if (Array.isArray(lines)) return lines.filter((line): line is string => typeof line === 'string')
+  } catch (error) {
+    logger.warn('heddle could not read the input history. It starts a new one.', { error })
+  }
+  return []
+}
 
 /** The one user of heddle. The host keeps the sessions and the keys of this user. */
 const USER = { id: 'local' }
@@ -247,6 +269,8 @@ export async function startHeddle(options: {
   // The logger makes `<home>/.heddle/logs`, so the folder of the database is there too.
   const logger = createFileLogger(join(dataDir, 'logs', 'heddle.log'))
   const stores = openSqliteStores(join(dataDir, 'heddle.db'))
+  const historyFile = join(dataDir, 'history.json')
+  let historyLines = readHistory(historyFile, logger)
   const host = createHarnessHost({
     persistence: stores.persistence,
     credentials: stores.credentials,
@@ -477,6 +501,19 @@ export async function startHeddle(options: {
         if (!abort.signal.aborted) logger.warn('heddle stopped reading the session statuses.', { error })
       })
       return () => abort.abort()
+    },
+    folder: root,
+    history: {
+      lines: () => historyLines,
+      add: (line) => {
+        historyLines = [...historyLines.filter((each) => each !== line), line].slice(-HISTORY_LIMIT)
+        // ponytail: two heddle windows write over the lines of each other. The last write wins.
+        try {
+          writeFileSync(historyFile, JSON.stringify(historyLines))
+        } catch (error) {
+          logger.warn('heddle could not save the input history.', { error })
+        }
+      },
     },
     shutdown: () => (stopping ??= stop()),
   }

@@ -10,6 +10,7 @@ import type {
 } from '@tanstack/ai-harness/view'
 import { color, glyph } from '../ui/theme'
 import { graphemes, isRecord, relativePath } from '../utils'
+import { markdownSegments } from './markdown'
 
 /** One item of the timeline. */
 export interface Row {
@@ -24,6 +25,7 @@ export interface Row {
     | 'agent-end'
     | 'notice'
     | 'error'
+    | 'reasoning'
   /** 0 = the lead agent, 1 or more = subagents. */
   depth: number
   /** 'you', the model name, the tool label, or the agent name. */
@@ -48,6 +50,7 @@ export interface Segment {
   bg?: string
   bold?: boolean
   dim?: boolean
+  italic?: boolean
 }
 
 /** One screen line. `rowId` is the id of the row that the line shows. */
@@ -296,7 +299,12 @@ function addParts(
       case 'agent':
         addAgent(rows, part, starts.get(part.id), scope.depth + 1, options)
         break
-      case 'reasoning':
+      case 'reasoning': {
+        const text = part.text.trim()
+        if (!scope.showText || text === '') break
+        rows.push({ id: `${scope.owner}:${index}`, kind: 'reasoning', depth: scope.depth, title: 'thinking', text })
+        break
+      }
       case 'media':
         break
     }
@@ -311,6 +319,8 @@ function addParts(
  *   result when it ends. The tool call that started it has no row.
  * - A code mode program is one `program` row. `code` has its text.
  * - A tool call that waits for an approval has the status `waiting`.
+ * - The reasoning of a model is a `reasoning` row. `layoutLines` shows it in
+ *   muted italic, and shows the answers as markdown.
  *
  * @param messages The messages of the view state.
  * @param options The model name, the tools root, and the line counts of the
@@ -413,7 +423,7 @@ interface Block {
   mark: Segment
   /** The title or the tool label, before the text on the first line. */
   head: Array<Segment>
-  text: Segment
+  text: Array<Segment>
   /** The counts and the status, at the right end of the last line. */
   tail: Array<Segment>
   /** The lines after the first start under the text, not under the head. */
@@ -575,7 +585,7 @@ function blockLines(depth: number, block: Block, width: number) {
   const room = Math.max(width - widthOf(first), 1)
   const headCells = widthOf(block.head)
   const indent = block.hang && room - headCells >= MIN_HANG ? headCells : 0
-  const body = wrap([...block.head, block.text], room, room - indent)
+  const body = wrap([...block.head, ...block.text], room, room - indent)
   const hung = body.map((segments, index) =>
     index === 0 || indent === 0
       ? segments
@@ -633,14 +643,14 @@ function rowLines(row: Row, width: number) {
       const header: Block = {
         mark: { text: glyph.dot, ...you },
         head: [{ text: title, ...you }],
-        text: { text: '' },
+        text: [],
         tail: [],
         hang: false,
       }
       const message: Block = {
         mark: lane,
         head: [],
-        text: { text, fg: color.linen },
+        text: [{ text, fg: color.linen }],
         tail: [],
         hang: false,
       }
@@ -657,12 +667,17 @@ function rowLines(row: Row, width: number) {
         bold: true,
       }
       const isFailed = row.kind === 'agent-end' && row.status === 'failed'
+      // The answers of the agents are markdown. A task is plain text.
+      const body =
+        row.kind === 'agent-start' || isFailed
+          ? [{ text, fg: isFailed ? color.madder : color.linen }]
+          : markdownSegments(text, color.linen)
       return blockLines(
         row.depth,
         {
           mark: { text: glyph.dot, ...accent },
           head: [{ text: title, ...accent }, { text: TITLE_GAP }],
-          text: { text, fg: isFailed ? color.madder : color.linen },
+          text: body,
           tail: [],
           hang: true,
         },
@@ -681,7 +696,7 @@ function rowLines(row: Row, width: number) {
             { text: label, fg: row.write ? color.linen : color.muted },
             { text: ' '.repeat(pad) + TITLE_GAP },
           ],
-          text: { text, fg: color.linen },
+          text: [{ text, fg: color.linen }],
           tail: tailOf(row),
           hang: true,
         },
@@ -695,12 +710,26 @@ function rowLines(row: Row, width: number) {
         {
           mark: lane,
           head: [],
-          text: {
-            text,
-            fg: row.kind === 'error' ? color.madder : color.muted,
-          },
+          text: [
+            {
+              text,
+              fg: row.kind === 'error' ? color.madder : color.muted,
+            },
+          ],
           tail: [],
           hang: false,
+        },
+        width,
+      )
+    case 'reasoning':
+      return blockLines(
+        row.depth,
+        {
+          mark: lane,
+          head: [{ text: title, fg: color.faint, italic: true }, { text: TITLE_GAP }],
+          text: [{ text, fg: color.muted, italic: true }],
+          tail: [],
+          hang: true,
         },
         width,
       )
@@ -776,7 +805,7 @@ export function layoutLines(rows: ReadonlyArray<Row>, width: number, activity?: 
       add(row.id, branchLine(row.depth, glyph.open))
       open = row.depth
     }
-    const isMessage = row.kind === 'user' || row.kind === 'assistant'
+    const isMessage = row.kind === 'user' || row.kind === 'assistant' || row.kind === 'reasoning'
     if (isMessage && lines.length > 0) {
       add(row.id, laneLine(row.depth, glyph.spine))
     }

@@ -109,6 +109,7 @@ describe('Header', () => {
       { width: 100, height: 2 },
     )
     expect(header.frame()).toContain('◌ 2 sessions need you')
+    expect(header.frame()).not.toContain('effort')
     expect(header.frame()).toContain('● 1 session running')
     expect(header.colorOf('◌ 2 sessions need you')).toBe(color.weld)
   })
