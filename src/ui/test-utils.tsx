@@ -1,6 +1,6 @@
 // A test terminal for the screens of heddle. Only the tests import this file.
 import { rgbToHex } from '@opentui/core'
-import type { MockInput } from '@opentui/core/testing'
+import type { MockInput, TestRendererOptions } from '@opentui/core/testing'
 import { testRender } from '@opentui/react/test-utils'
 import { act, type ReactNode } from 'react'
 
@@ -8,12 +8,13 @@ import { act, type ReactNode } from 'react'
 export const ESCAPE_WAIT_MS = 40
 
 /**
- * Render `node` in a test terminal. `input` sends keys inside act(), waits
- * `waitMs` for the answers to settle, and draws the next frame. Dispose it
- * with `await using`.
+ * Render `node` in a test terminal. `options` are the options of the test
+ * renderer: the size, and for example `exitOnCtrlC`. `input` sends keys inside
+ * act(), waits `waitMs` for the answers to settle, and draws the next frame.
+ * Dispose it with `await using`.
  */
-export async function mount(node: ReactNode, size = { width: 100, height: 20 }) {
-  const setup = await testRender(node, size)
+export async function mount(node: ReactNode, options: TestRendererOptions = { width: 100, height: 20 }) {
+  const setup = await testRender(node, options)
   await setup.renderOnce()
   const frame = () => setup.captureCharFrame()
   return {
