@@ -1,7 +1,7 @@
 // The app shell of heddle: it puts the panes together and routes the keys.
 import type { BoxRenderable, SyntaxStyle } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
-import { selectGoal, type Goal } from '@tanstack/ai-harness/plugins'
+import { selectGoal, type Goal, type PermissionRule } from '@tanstack/ai-harness/plugins'
 import type {
   Approval,
   SessionView,
@@ -15,16 +15,16 @@ import { MODELS } from '../harness'
 import type { SyncState } from '../sandbox'
 import type { ChangesState, ChangesWatch } from '../state/changes'
 import { parseInput, suggest, type Input, type LocalAction } from '../state/commands'
-import { buildAgentRows, buildRows, layoutLines, type Row } from '../state/timeline'
+import { activityOf, buildAgentRows, buildRows, layoutLines, type Row } from '../state/timeline'
 import { useView, useWatch, type ViewStore } from '../state/useView'
-import { isRecord, messageOf, padWidth, widest } from '../utils'
+import { isRecord, messageOf } from '../utils'
 import { ApprovalBar } from './ApprovalBar'
 import { Changes } from './Changes'
 import { Composer } from './Composer'
 import { Header } from './Header'
 import { Hints, type Hint } from './Hints'
 import { isPlain, useKeyState } from './keys'
-import { Palette } from './Palette'
+import { Palette, type PaletteItem } from './Palette'
 import { SessionPicker, type SessionRow } from './SessionPicker'
 import { Timeline } from './Timeline'
 import { color } from './theme'
@@ -49,6 +49,8 @@ export interface AppSession {
   sync?: { state(): SyncState; onState(listener: (state: SyncState) => void): () => void }
   /** The provider of the current model when it has no API key, else `undefined`. */
   missingKey(): Promise<string | undefined>
+  /** The rules that `always` answers saved, in the order of `/permissions forget <n>`. */
+  permissionRules(): Promise<ReadonlyArray<PermissionRule>>
   close(): Promise<void>
 }
 
@@ -77,8 +79,14 @@ type PaneName = Exclude<Focus, 'input'>
 /** The pane that shows first in a narrow terminal. */
 const START_PANE: PaneName = 'timeline'
 
-/** A box over the screen. */
-type Overlay = 'sessions' | 'palette'
+/** A box over the screen. `choices` is the palette with the choices of one command. */
+type Overlay = 'sessions' | 'palette' | 'choices'
+
+/** The choices of one command, such as the models of `/model`. */
+interface Choices {
+  title: string
+  items: ReadonlyArray<PaletteItem>
+}
 
 /** Under this many columns, one pane shows at a time. */
 const NARROW_WIDTH = 100
@@ -124,9 +132,10 @@ const MOVE_HINTS: ReadonlyArray<Hint> = [
 /** The app does not need the selected row of a timeline: the timeline keeps it. */
 function ignoreSelect() {}
 
-/** The part after `focus` in the tab order. */
-function nextFocus(focus: Focus) {
-  return FOCUS_ORDER[(FOCUS_ORDER.indexOf(focus) + 1) % FOCUS_ORDER.length]
+/** The part after `focus` in the tab order. Without the right pane, tab skips it. */
+function nextFocus(focus: Focus, hasRightPane: boolean) {
+  const order = hasRightPane ? FOCUS_ORDER : FOCUS_ORDER.filter((part) => part !== 'changes')
+  return order[(order.indexOf(focus) + 1) % order.length]
 }
 
 /** The text value of the plugin setting `key` of `owner`. */
@@ -177,12 +186,40 @@ function missingKeyText(provider: string) {
   return env === undefined ? `${connect}.` : `${connect}, or set ${env}.`
 }
 
-/** The text of `/help`: each command, and what it does. */
-function helpText(commands: ReadonlyArray<ViewCommand>) {
-  const rows = suggest('/', commands)
-  const width = widest(rows.map((row) => row.label))
-  const lines = rows.map((row) => `${padWidth(row.label, width)}  ${row.detail}`)
-  return ['Commands:', ...lines].join('\n')
+/** What each mode of `permissions()` does, for the `/permissions` choices. */
+const MODE_DETAILS: Record<string, string> = {
+  default: 'The rules apply. Some tools ask first.',
+  plan: 'Read only: no edits, no commands',
+  acceptEdits: 'Edits run. Commands ask first.',
+  bypass: 'Everything runs. Nothing asks.',
+}
+
+/** More about the choices of a setting, by setting key. */
+const CHOICE_DETAILS: Record<string, Record<string, string>> = {
+  model: Object.fromEntries(MODELS.map((choice) => [choice.name, `${choice.provider}  ${choice.model}`])),
+  mode: MODE_DETAILS,
+}
+
+/** A saved permission rule as one line: the tool, then the resource. */
+function ruleText(rule: PermissionRule) {
+  return rule.resource === undefined ? rule.tool : `${rule.tool} ${rule.resource}`
+}
+
+/**
+ * The choices of the select setting `key`, such as `model` or `mode`. The
+ * current value has `(current)`. A choice calls `choose` with its value.
+ */
+function settingChoices(config: ReadonlyArray<ViewConfigEntry>, key: string, choose: (value: string) => void) {
+  const entry = config.find((item) => item.key === key)
+  if (entry?.option.type !== 'select') return []
+  return entry.option.options.map((value) => {
+    const item: PaletteItem = {
+      label: value === entry.value ? `${value} (current)` : value,
+      detail: CHOICE_DETAILS[key]?.[value],
+      run: () => choose(value),
+    }
+    return item
+  })
 }
 
 
@@ -289,7 +326,9 @@ function Pane({ title, focused, shown, width, alignBottom, children }: {
  * The heddle screen for one open session. From the top: the header, the
  * session timeline (about 45% of the width) and the changes pane, the
  * approval bar while an approval or a question waits, the composer, and the
- * key hints. Under 100 columns, one pane shows at a time.
+ * key hints. Under 100 columns, one pane shows at a time. The changes pane
+ * shows only after a file changed, or while it shows an agent. Without it,
+ * the timeline takes the whole width.
  *
  * Keys:
  *
@@ -304,7 +343,9 @@ function Pane({ title, focused, shown, width, alignBottom, children }: {
  * - Esc while a turn runs stops it.
  * - ctrl+c twice in 1 second calls `onQuit`.
  *
- * The composer text goes to `parseInput`. A send first checks the API key.
+ * The composer text goes to `parseInput`. A command with no input that has
+ * choices (`/model`, `/mode`, `/agent`, `/permissions`) opens a list of them.
+ * `/help` opens the command palette. A send first checks the API key.
  * When the key is missing, it shows `No API key for <provider>. Type
  * /connect <provider>, or set <ENV>.` and does not send.
  *
@@ -352,6 +393,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const quitAt = useKeyState<number | undefined>(undefined)
   const [sessions, setSessions] = useState<ReadonlyArray<SessionRow>>([])
   const [missingKey, setMissingKey] = useState<string>()
+  const [choices, setChoices] = useState<Choices>()
   /** The rows that the composer and the approval bar take beyond one line. */
   const [extraRows, setExtraRows] = useState(0)
   const panesBox = useRef<BoxRenderable>(null)
@@ -403,23 +445,30 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
   const isWaiting = waitingId !== undefined
   const isOverlay = overlay.value !== undefined
   const isRunning = status === 'running'
+  // The right pane shows only when it has something: a file change, or the transcript of an agent.
+  const hasRightPane = changes.files.length > 0 || agent !== undefined
 
   // The sizes. The panes take the rows that the rest leaves. The composer
   // and the approval bar can take more than one line: `extraRows` has those
   // rows, from the size of the panes after the layout.
   const isNarrow = terminal.width < NARROW_WIDTH
-  const timelineWidth = isNarrow ? terminal.width : Math.round(terminal.width * TIMELINE_SHARE)
-  const rightWidth = isNarrow ? terminal.width : terminal.width - timelineWidth - PANE_GAP
+  const splitWidth = Math.round(terminal.width * TIMELINE_SHARE)
+  const timelineWidth = isNarrow || !hasRightPane ? terminal.width : splitWidth
+  const rightWidth = isNarrow ? terminal.width : terminal.width - splitWidth - PANE_GAP
   /** The rows of the panes in a terminal `height` rows high, when the composer and the bar have one line. */
   const panesRowsFor = (height: number) => height - CHROME_ROWS - (isWaiting ? BAR_ROWS : 0)
   const paneRows = Math.max(PANE_FRAME_ROWS + 1, panesRowsFor(terminal.height) - extraRows)
   const innerRows = paneRows - PANE_FRAME_ROWS
   const timelineInner = Math.max(1, timelineWidth - PANE_FRAME_COLUMNS)
   const rightInner = Math.max(1, rightWidth - PANE_FRAME_COLUMNS)
-  const lines = useMemo(() => layoutLines(rows, timelineInner), [rows, timelineInner])
+  const activity = isRunning ? activityOf(messages) : undefined
+  const lines = useMemo(
+    () => layoutLines(rows, timelineInner, activity),
+    [rows, timelineInner, activity],
+  )
   const agentLines = useMemo(() => layoutLines(agentRows, rightInner), [agentRows, rightInner])
-  const isTimelineShown = !isNarrow || narrowPane === 'timeline'
-  const isRightShown = !isNarrow || narrowPane === 'changes'
+  const isTimelineShown = !isNarrow || narrowPane === 'timeline' || !hasRightPane
+  const isRightShown = hasRightPane && (!isNarrow || narrowPane === 'changes')
 
   /** Shows a problem as a row of the timeline. */
   const report = (error: unknown) => {
@@ -488,9 +537,39 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         onQuit()
         return
       case 'help':
-        current.now().view.notice({ text: helpText(commands) })
+        openOverlay('palette')
         return
     }
+  }
+
+  /**
+   * The choices of the command `name` of `target`, when it has some: the
+   * values of the select setting with the same name (`/model`, `/mode`,
+   * `/agent`), or the modes and the saved rules (`/permissions`).
+   */
+  const choicesFor = async (target: AppSession, name: string) => {
+    const { config } = target.view.store.get()
+    const runWith = (command: string) => (input: string) => {
+      target.view.runCommand({ name: command, input }).catch(report)
+    }
+    if (name === 'permissions') {
+      const rules = await target.permissionRules()
+      const forget = rules.map((rule, index) => {
+        const item: PaletteItem = {
+          label: `Forget ${ruleText(rule)}`,
+          detail: `a saved ${rule.decision} rule`,
+          run: () => runWith('permissions')(`forget ${index + 1}`),
+        }
+        return item
+      })
+      const items = [...settingChoices(config, 'mode', runWith('mode')), ...forget]
+      const picked: Choices = { title: 'Permissions', items }
+      return picked
+    }
+    const items = settingChoices(config, name, runWith(name))
+    if (items.length === 0) return undefined
+    const picked: Choices = { title: name.charAt(0).toUpperCase() + name.slice(1), items }
+    return picked
   }
 
   /** Does what one line of the composer or one palette command asks. */
@@ -507,9 +586,17 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
         target.view.notice({ text: missingKeyText(provider) })
         return
       }
-      case 'command':
+      case 'command': {
+        // A command with no input that has choices shows them, to pick one.
+        const picked = input.input === undefined ? await choicesFor(target, input.name) : undefined
+        if (picked !== undefined) {
+          setChoices(picked)
+          overlay.set('choices')
+          return
+        }
         await target.view.runCommand({ name: input.name, input: input.input })
         return
+      }
       case 'local':
         runLocal(input.action)
         return
@@ -560,7 +647,7 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
     switch (key.name) {
       case 'tab':
         key.preventDefault()
-        moveFocus(nextFocus(focus.now()))
+        moveFocus(nextFocus(focus.now(), hasRightPane))
         return
       case 'escape': {
         // While it has the focus, the approval bar takes esc: it closes its reason input.
@@ -674,36 +761,38 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
             onOpen={openRowIn(rows)}
           />
         </Pane>
-        <Pane
-          title={agent?.name ?? 'changes'}
-          focused={isFocusable && focus.value === 'changes'}
-          shown={isRightShown}
-          width={rightWidth}
-          alignBottom={isAgentOpen}
-        >
-          <box visible={!isAgentOpen} flexShrink={0}>
-            <Changes
-              key={session.threadId}
-              state={changes}
-              width={rightInner}
-              height={innerRows}
-              focused={isFocusable && focus.value === 'changes' && !isAgentOpen}
-              syntaxStyle={syntaxStyle}
-            />
-          </box>
-          {agent === undefined ? null : (
-            <Timeline
-              key={agent.id}
-              lines={agentLines}
-              width={rightInner}
-              height={innerRows}
-              focused={isFocusable && focus.value === 'changes'}
-              live={isRightShown && agent.status === 'running'}
-              onSelect={ignoreSelect}
-              onOpen={openRowIn(agentRows)}
-            />
-          )}
-        </Pane>
+        {hasRightPane ? (
+          <Pane
+            title={agent?.name ?? 'changes'}
+            focused={isFocusable && focus.value === 'changes'}
+            shown={isRightShown}
+            width={rightWidth}
+            alignBottom={isAgentOpen}
+          >
+            <box visible={!isAgentOpen} flexShrink={0}>
+              <Changes
+                key={session.threadId}
+                state={changes}
+                width={rightInner}
+                height={innerRows}
+                focused={isFocusable && focus.value === 'changes' && !isAgentOpen}
+                syntaxStyle={syntaxStyle}
+              />
+            </box>
+            {agent === undefined ? null : (
+              <Timeline
+                key={agent.id}
+                lines={agentLines}
+                width={rightInner}
+                height={innerRows}
+                focused={isFocusable && focus.value === 'changes'}
+                live={isRightShown && agent.status === 'running'}
+                onSelect={ignoreSelect}
+                onOpen={openRowIn(agentRows)}
+              />
+            )}
+          </Pane>
+        ) : null}
       </box>
       {isWaiting ? (
         <ApprovalBar
@@ -736,6 +825,9 @@ export function App({ host, session: first, syntaxStyle, startWith, onQuit }: {
       ) : null}
       {overlay.value === 'palette' ? (
         <Palette items={paletteItems()} onClose={() => overlay.set(undefined)} />
+      ) : null}
+      {overlay.value === 'choices' && choices !== undefined ? (
+        <Palette title={choices.title} items={choices.items} onClose={() => overlay.set(undefined)} />
       ) : null}
     </box>
   )

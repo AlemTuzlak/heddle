@@ -204,14 +204,22 @@ function clampIndex(picked: number, count: number) {
  * composer under it gets none. Render it as the last child of the box that
  * fills the terminal, and only while it is open.
  *
+ * It also shows the choices of a command, such as the models of `/model`,
+ * with another `title`.
+ *
  * @param items The commands, in the order to show them.
+ * @param title The title at the top left. Default: `Commands`.
  * @param onClose Called when the palette must close.
  * @example
  * {overlay === 'palette' ? (
  *   <Palette items={[{ label: 'New session', run: startSession }]} onClose={() => setOverlay(null)} />
  * ) : null}
  */
-export function Palette({ items, onClose }: { items: ReadonlyArray<PaletteItem>; onClose(): void }) {
+export function Palette({ items, title = 'Commands', onClose }: {
+  items: ReadonlyArray<PaletteItem>
+  title?: string
+  onClose(): void
+}) {
   const layout = useOverlayLayout()
   /** The index of the selected command in the commands that match. */
   const picked = useKeyState(0)
@@ -251,7 +259,7 @@ export function Palette({ items, onClose }: { items: ReadonlyArray<PaletteItem>;
   const detailWidth = Math.min(Math.max(0, ...details), Math.floor((layout.inner - PALETTE_LEAD) / 2))
   const labelWidth = layout.inner - PALETTE_LEAD - (detailWidth === 0 ? 0 : GAP + detailWidth)
   return (
-    <Overlay layout={layout} title="Commands" search={search.text} searchFocused hints={PALETTE_HINTS}>
+    <Overlay layout={layout} title={title} search={search.text} searchFocused hints={PALETTE_HINTS}>
       {shown.length === 0 ? (
         <text fg={color.muted}>{items.length === 0 ? NO_COMMANDS : NO_MATCH}</text>
       ) : (

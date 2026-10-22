@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { SyntaxStyle } from '@opentui/core'
 import { useRenderer } from '@opentui/react'
+import type { PermissionRule } from '@tanstack/ai-harness/plugins'
 import type { FileChange } from '@tanstack/ai-harness/plugins/coding'
 import type {
   AgentPart,
@@ -8,6 +9,7 @@ import type {
   SessionViewState,
   ToolCallPart,
   ViewCommand,
+  ViewConfigEntry,
   ViewMessage,
 } from '@tanstack/ai-harness/view'
 import { act, useState, type ComponentProps } from 'react'
@@ -42,7 +44,17 @@ const COMMANDS: ReadonlyArray<ViewCommand> = [
     owner: 'tanstack/goal',
     input: { type: 'string' },
   },
+  { name: 'model', description: 'Show or switch the model', owner: 'tanstack/model-picker' },
+  { name: 'permissions', description: 'List the saved rules', owner: 'tanstack/permissions' },
 ]
+
+/** The `mode` setting of `permissions()`, in the mode `default`. */
+const MODE_SETTING: ViewConfigEntry = {
+  key: 'mode',
+  owner: 'tanstack/permissions',
+  value: 'default',
+  option: { type: 'select', options: ['default', 'plan'], default: 'default' },
+}
 
 /** A call of a view action, as the fake view keeps it. */
 type ViewCall =
@@ -105,7 +117,7 @@ function viewState(threadId: string, fields: Partial<SessionViewState>) {
 function createSession(
   threadId: string,
   fields: Partial<SessionViewState> = {},
-  options: { missingKey?: string; changes?: ChangesState } = {},
+  options: { missingKey?: string; changes?: ChangesState; rules?: ReadonlyArray<PermissionRule> } = {},
 ) {
   let state = viewState(threadId, fields)
   const listeners = new Set<() => void>()
@@ -150,11 +162,12 @@ function createSession(
     view,
     changes: { get: () => changes, subscribe: () => () => {}, stop: () => {} },
     missingKey: async () => options.missingKey,
+    permissionRules: async () => options.rules ?? [],
     close: async () => {
       closes += 1
     },
   }
-  return { session, calls, closes: () => closes }
+  return { session, calls, update, closes: () => closes }
 }
 
 type FakeSession = ReturnType<typeof createSession>
@@ -370,6 +383,85 @@ describe('App layout', () => {
   })
 })
 
+describe('App without changes', () => {
+  test('the timeline takes the whole width, and tab skips the changes', async () => {
+    const fake = createSession('thread-1', { messages: [USER_MESSAGE] })
+    await using app = await mountApp(fake, { size: WIDE })
+    expect(app.rows()[1]).toMatch(/^╭─ session ─+╮$/)
+    expect(app.rows()[1]).toHaveLength(WIDE.width)
+    expect(app.frame()).not.toContain('No file changes yet.')
+    // tab goes from the composer to the timeline, and then back to the composer.
+    await app.input((keys) => keys.pressTab())
+    await app.input((keys) => keys.pressTab())
+    await app.input((keys) => keys.typeText('hi'))
+    expect(app.lineWith('›')).toMatch(/│ › hi +│/)
+  })
+})
+
+describe('App status', () => {
+  test('a running turn shows what it does at the end of the timeline', async () => {
+    const fake = createSession('thread-1', { status: 'running', messages: [USER_MESSAGE] })
+    await using app = await mountApp(fake)
+    // Before the first model call, for example while the files get their snapshot.
+    expect(app.frame()).toContain('Starting…')
+    const thinking: ViewMessage = { id: 'turn-1', role: 'assistant', parts: [{ type: 'reasoning', text: 'Look at add.' }] }
+    await app.input(() => fake.update({ messages: [USER_MESSAGE, thinking] }))
+    expect(app.frame()).toContain('Thinking…')
+    await app.input(() => fake.update({ status: 'idle' }))
+    expect(app.frame()).not.toContain('Thinking…')
+  })
+})
+
+describe('App pickers', () => {
+  test('/model opens the models, and enter switches the model', async () => {
+    const fake = createSession('thread-1')
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/model')
+      keys.pressEnter()
+    })
+    expect(app.frame()).toContain('opus (current)')
+    expect(app.frame()).toContain('haiku')
+    await app.input((keys) => {
+      keys.pressArrow('down')
+      keys.pressEnter()
+    })
+    expect(fake.calls).toEqual([{ action: 'command', name: 'model', input: 'haiku' }])
+    expect(app.frame()).not.toContain('opus (current)')
+  })
+
+  test('/permissions lists the modes and the saved rules, and forgets a rule', async () => {
+    const config = [...viewState('thread-1', {}).config, MODE_SETTING]
+    const rules: Array<PermissionRule> = [{ tool: 'bash', resource: 'npm test', decision: 'allow' }]
+    const fake = createSession('thread-1', { config }, { rules })
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/permissions')
+      keys.pressEnter()
+    })
+    expect(app.frame()).toContain('default (current)')
+    expect(app.frame()).toContain('plan')
+    expect(app.frame()).toContain('Forget bash npm test')
+    await app.input(async (keys) => {
+      await keys.typeText('forget')
+      keys.pressEnter()
+    })
+    expect(fake.calls).toEqual([{ action: 'command', name: 'permissions', input: 'forget 1' }])
+  })
+
+  test('/help opens the command palette', async () => {
+    const fake = createSession('thread-1')
+    await using app = await mountApp(fake)
+    await app.input(async (keys) => {
+      await keys.typeText('/help')
+      keys.pressEnter()
+    })
+    expect(app.frame()).toContain('⌕')
+    expect(app.lineWith('/goal')).toContain('Work until a goal is met')
+    expect(fake.calls).toEqual([])
+  })
+})
+
 describe('App approvals', () => {
   test('the header shows how full the context is', async () => {
     // opus has a window of 1,000,000 tokens.
@@ -435,9 +527,9 @@ describe('App subagents', () => {
       expect.stringMatching(/^│ ● {2}explore {3}1 caller, nothing to change +│$/),
       expect.stringMatching(/^│ ┊ +│$/),
     ])
+    // No file changed, so after esc the timeline takes the whole width again.
     await app.input((keys) => keys.pressEscape(), ESCAPE_WAIT_MS)
-    expect(app.rows()[1]).toMatch(/^╭─ session ─+╮ ╭─ changes ─+╮$/)
-    expect(rightPane()[2]).toMatch(/^│ No file changes yet\. +│$/)
+    expect(app.rows()[1]).toMatch(/^╭─ session ─+╮$/)
   })
 })
 

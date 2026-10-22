@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readCredential } from '@tanstack/ai/byok/server'
 import { createHarnessHost } from '@tanstack/ai-harness'
+import { listSavedPermissions, type PermissionRule } from '@tanstack/ai-harness/plugins'
 import { createSessionView } from '@tanstack/ai-harness/view'
 import { MODELS, createHarness, type ModelChoice } from './harness'
 import { CONTAINER_ROOT, createSandbox } from './sandbox'
@@ -42,6 +43,8 @@ export interface OpenSession {
    * model that heddle knows.
    */
   missingKey(): Promise<string | undefined>
+  /** The rules that `always` answers saved for the tools root, in the order of `/permissions forget <n>`. */
+  permissionRules(): Promise<ReadonlyArray<PermissionRule>>
   /** Stops the change watch and the view, and lets the session go. A second call does nothing. */
   close(): Promise<void>
 }
@@ -357,6 +360,8 @@ export async function startHeddle(options: {
         }
         return (await hasKey(choice)) ? undefined : choice.provider
       },
+      // `permissions()` saves the rules for the root of the tools.
+      permissionRules: () => listSavedPermissions(stores.persistence.stores, toolsRoot),
       close: async () => {
         // A session that is closed already is not in the set.
         if (!opened.delete(openSession)) return

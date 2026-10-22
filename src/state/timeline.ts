@@ -385,6 +385,23 @@ export function buildAgentRows(agent: AgentPart, options: RowOptions) {
   return rows
 }
 
+/**
+ * What a running turn does now, for the line at the end of the timeline:
+ * `Starting` before its first model output (the harness takes a snapshot of
+ * the files first, which can take long in a big folder), `Thinking` while the
+ * model reasons, and `Working` after that.
+ *
+ * @param messages The messages of the view state.
+ * @example
+ * layoutLines(rows, width, isRunning ? activityOf(messages) : undefined)
+ */
+export function activityOf(messages: ReadonlyArray<ViewMessage>) {
+  const lastSent = messages.findLastIndex((message) => message.role === 'user')
+  const reply = messages.slice(lastSent + 1).findLast((message) => message.role === 'assistant')
+  if (reply?.role !== 'assistant' || reply.parts.length === 0) return 'Starting'
+  return reply.parts.at(-1)?.type === 'reasoning' ? 'Thinking' : 'Working'
+}
+
 // Lines
 
 /** The style of a segment: all of it but the text. */
@@ -730,12 +747,16 @@ function fit(segments: ReadonlyArray<Segment>, width: number) {
  *   the row after them. A `├─╯` line and a `┊` line belong to the row before
  *   them.
  *
+ * While a turn runs, the last line is a spinner and `activity`, for example
+ * `Thinking…`, in place of the `┊` of the lead lane.
+ *
  * @param rows The rows from `buildRows` or `buildAgentRows`.
  * @param width The width of the pane, in cells.
+ * @param activity What the running turn does, from `activityOf`.
  * @example
  * const lines = layoutLines(buildRows(messages, options), 48)
  */
-export function layoutLines(rows: ReadonlyArray<Row>, width: number) {
+export function layoutLines(rows: ReadonlyArray<Row>, width: number, activity?: string) {
   const lines: Array<Line> = []
   if (width < 1 || rows.length === 0) return lines
   const add = (rowId: string, segments: ReadonlyArray<Segment>) => {
@@ -768,6 +789,11 @@ export function layoutLines(rows: ReadonlyArray<Row>, width: number) {
     lastId = row.id
   }
   closeTo(0)
-  add(lastId, laneLine(0, glyph.more))
+  // ponytail: no elapsed time. The spinner shows that the turn is alive.
+  const end =
+    activity === undefined
+      ? laneLine(0, glyph.more)
+      : [{ text: SPINNER, fg: color.indigo }, { text: GAP }, { text: `${activity}…`, fg: color.muted }]
+  add(lastId, end)
   return lines
 }

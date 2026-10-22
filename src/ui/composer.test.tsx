@@ -250,15 +250,15 @@ describe('Composer popup', () => {
     expect(screen.sent).toEqual(['/connect anthropic'])
   })
 
-  test('enter completes the selected command', async () => {
+  test('enter runs the selected command at once', async () => {
     await using screen = await mountComposer()
     await screen.input(async (keys) => {
       await keys.typeText('/mod')
       keys.pressArrow('down')
       keys.pressEnter()
     })
-    expect(screen.sent).toEqual([])
-    expect(screen.lineWith('›')).toMatch(/^│ › \/model +│$/)
+    expect(screen.sent).toEqual(['/model'])
+    expect(screen.lineWith('›')).toMatch(/^│ › Ask heddle +│$/)
   })
 
   test('enter on an exact match submits', async () => {

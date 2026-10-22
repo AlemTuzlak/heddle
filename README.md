@@ -3,7 +3,7 @@
 heddle is a coding agent in your terminal. You give it a task in a project folder, and you see each step while it works:
 
 - The session pane shows each step in a timeline. A subagent shows as a branch.
-- The changes pane shows the live diff of each file that the agent changes.
+- The changes pane shows the live diff of each file that the agent changes. It shows after the first change.
 - A command waits for your approval before it runs.
 
 You can quit at any time and continue the session later. The agent can also work in a Docker sandbox, and it can use MCP servers such as Linear and Notion.
@@ -116,7 +116,7 @@ These keys work everywhere:
 
 | Key | What it does |
 | --- | --- |
-| `tab` | Go to the next part: the session pane, the changes pane, then the input. |
+| `tab` | Go to the next part: the session pane, the changes pane (when it shows), then the input. |
 | `esc` | Stop the turn that runs. If the right pane shows a subagent, go back to the changes. |
 | `ctrl+o` | Open or close the session picker. |
 | `ctrl+k` | Open or close the command palette. |
@@ -129,7 +129,8 @@ In the input:
 | `enter` | Send. |
 | `shift+enter` or `ctrl+j` | Add a line. |
 | `/` | Show the commands that start with what you type. |
-| `↑` `↓`, then `enter` | Pick a command, and put it in the input. A second `enter` runs it. `tab` also puts it in the input. |
+| `↑` `↓`, then `enter` | Pick a command, and run it. |
+| `tab` | Put the selected command in the input, to type more after it, such as `/goal <text>`. |
 | `esc` | Close the list of commands. |
 
 When heddle asks for approval:
@@ -140,7 +141,7 @@ When heddle asks for approval:
 | `a` | Yes, always. heddle saves a rule for this project, and does not ask again for this command or path. |
 | `n` | No. Type the reason, and press `enter`. `esc` goes back to the keys. |
 
-For a question with choices, press the key of a choice. For a text question, type the answer and press `enter`. A secret, such as an API key, shows as dots. `/permissions` lists the rules that `a` saved.
+For a question with choices, press the key of a choice. For a text question, type the answer and press `enter`. A secret, such as an API key, shows as dots. `/permissions` shows the permission modes and the rules that `a` saved. Pick a rule to forget it.
 
 In the session pane:
 
@@ -149,6 +150,8 @@ In the session pane:
 | `↑` `↓` | Select a row. |
 | `pageup` `pagedown` `home` `end` | Scroll. |
 | `enter` on a subagent row | Show the transcript of that subagent in the right pane. `esc` goes back. |
+
+While a turn runs, the last line of the session pane shows a spinner and what the turn does: `Starting…`, `Thinking…`, or `Working…`. In a big folder, the first turn can stay on `Starting…` for some time, because heddle saves a snapshot of the files before the first model call.
 
 In the changes pane:
 
@@ -163,7 +166,7 @@ The diff shows one patch at a time. The mouse wheel scrolls it.
 
 ## Commands
 
-Type `/` in the input to see the commands, or press `ctrl+k`. `/help` lists them all in the timeline.
+Type `/` in the input to see the commands, or press `ctrl+k`. `/help` also opens the command palette.
 
 heddle has these commands of its own:
 
@@ -172,17 +175,17 @@ heddle has these commands of its own:
 | `/sessions` | Open the session picker. |
 | `/new` | Start a new session. |
 | `/quit` or `/exit` | Quit heddle. |
-| `/help` | List the commands. |
+| `/help` | Open the command palette. |
 
 The agent has more commands. You use these the most:
 
 | Command | What it does |
 | --- | --- |
-| `/model <name>` | Use another model from the next turn. See [Models and API keys](#models-and-api-keys). |
-| `/agent plan` | Use the plan agent. It reads and searches, and it does not change files. `/agent build` goes back. |
+| `/model` | Pick another model from a list. It applies from the next turn. `/model <name>` also works. See [Models and API keys](#models-and-api-keys). |
+| `/agent` | Pick the agent from a list. The `plan` agent reads and searches, and it does not change files. `build` is the default. |
 | `/goal <text>` | Work until the goal is met. `/goal stop` stops it. |
 | `/undo` | Undo the last turn: its file changes and its messages. `/redo` brings them back. |
-| `/mode <mode>` | Set the permission mode: `default`, `plan`, `acceptEdits`, or `bypass`. `acceptEdits` does not ask for edits. `bypass` does not ask at all. |
+| `/mode` | Pick the permission mode from a list: `default`, `plan`, `acceptEdits`, or `bypass`. `acceptEdits` does not ask for edits. `bypass` does not ask at all. |
 
 The list of commands also shows the others, such as `/compact` and `/usage`.
 
@@ -205,8 +208,8 @@ Give heddle a key in one of two ways:
 | OpenAI | `gpt` (`gpt-6.1-sol`), `luna` (`gpt-6-luna`) | `/connect openai` | `OPENAI_API_KEY` |
 | xAI | `grok` (`grok-4.7`) | `/connect grok` | `XAI_API_KEY` |
 
-- A new session uses `opus`. To use another model, set `model` in a [config file](#config-files).
-- `/model` shows the model of the session. `/model sonnet` uses `sonnet` from the next turn.
+- Without `model` in a [config file](#config-files), a new session uses the first model of this table whose provider has a key.
+- `/model` shows the models, and marks the model of the session with `(current)`. Pick one, or type `/model sonnet`. The new model applies from the next turn.
 - `/keys` shows where each key comes from. `/disconnect <provider>` removes a saved key.
 - heddle uses a small model for titles, for the summaries of `/compact`, and for goal checks. It is `haiku`, `luna`, or `grok`: the small model of the provider of the `model` in your config. If you have only an OpenAI key or an xAI key, set `model` in a config file.
 

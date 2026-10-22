@@ -131,9 +131,9 @@ function Popup({ rows, index, labelWidth, width }: {
  *   sends nothing. The text keeps its new lines.
  * - shift+enter and ctrl+j add a line. A paste goes in whole, with its lines.
  * - A text that starts with `/` and has no space yet opens the popup of the
- *   matching commands, just above the input. ↑↓ move the selection, and tab
- *   completes the text. Esc closes the popup until the next edit. Enter
- *   completes too. When the text already is the selected command, enter sends.
+ *   matching commands, just above the input. ↑↓ move the selection. Enter
+ *   runs the selected command, and tab completes the text, to type the input
+ *   of the command. Esc closes the popup until the next edit.
  *
  * The composer is 3 rows high for one line, and 8 rows high for 6 lines. The
  * popup takes no rows of the layout. It draws over at most 8 rows above the
@@ -212,9 +212,9 @@ export function Composer({ commands, focused, placeholder, onSubmit }: {
     if (row === undefined) return
     if (SEND_KEYS.has(key.name)) {
       key.preventDefault()
-      // When the text already is the command, enter sends it. Else enter completes the text.
-      if (row.insert.trim() === current.trim()) send()
-      else complete(row.insert)
+      // Enter runs the selected command at once. Tab completes it, to type its input.
+      onSubmit(row.insert.trim())
+      field.clear()
       return
     }
     switch (key.name) {
