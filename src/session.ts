@@ -16,7 +16,7 @@ import type { AnyTextAdapter, Logger } from '@tanstack/ai'
 import type { HarnessSession, SessionSnapshot } from '@tanstack/ai-harness'
 import type { SessionView } from '@tanstack/ai-harness/view'
 import type { SessionIndexEntry } from '@tanstack/ai-persistence'
-import type { HeddleConfig } from './config'
+import { DEFAULT_IMAGE, type HeddleConfig } from './config'
 import type { Sandbox, SyncState } from './sandbox'
 import type { ChangesWatch } from './state/changes'
 import type { SessionRow } from './ui/SessionPicker'
@@ -86,9 +86,6 @@ const USER = { id: 'local' }
  * 5 s later.
  */
 const OWNERSHIP = { expiresAfterMs: 5000, renewEveryMs: 1500 }
-
-/** The Docker image when the config names none. It is the image of `"sandbox": true`. */
-const DEFAULT_IMAGE = 'node:24'
 
 /** The folder of the file snapshots in the container. */
 const SANDBOX_SNAPSHOTS = '/tmp/heddle/snapshots'

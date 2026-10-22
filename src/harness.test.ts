@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fakeText } from '@tanstack/ai/testing'
 import { createHarnessHost } from '@tanstack/ai-harness'
@@ -11,21 +10,13 @@ import type { AnyTextAdapter } from '@tanstack/ai'
 import type { WorkspaceBinder } from '@tanstack/ai-harness/plugins/coding'
 import type { McpServerConfig } from '@tanstack/ai-mcp/harness'
 import type { HeddleConfig } from './config'
+import { tempFolder } from './test-utils'
 
 /** The config when there is no config file. */
 const CONFIG: HeddleConfig = {
   sandbox: false,
   codeMode: { directCalls: 'keep' },
   mcp: {},
-}
-
-/** A new temp folder. `using` deletes it after the test. */
-function tempFolder() {
-  const path = mkdtempSync(join(tmpdir(), 'heddle-harness-'))
-  return {
-    path,
-    [Symbol.dispose]: () => rmSync(path, { recursive: true, force: true }),
-  }
 }
 
 /**

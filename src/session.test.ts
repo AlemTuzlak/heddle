@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fakeText } from '@tanstack/ai/testing'
 import { MODELS } from './harness'
@@ -10,21 +9,13 @@ import type { FakeResponse, FakeResponseStep } from '@tanstack/ai/testing'
 import type { SessionView, SessionViewState } from '@tanstack/ai-harness/view'
 import type { HeddleConfig } from './config'
 import type { Heddle } from './session'
+import { tempFolder } from './test-utils'
 
 /** The config of the tests: no sandbox, no code mode, and no MCP servers. */
 const CONFIG: HeddleConfig = { sandbox: false, codeMode: false, mcp: {} }
 
 /** No test signs in. If one did, this keeps the browser closed. */
 const noBrowser = () => {}
-
-/** A new temp folder. `using` deletes it after the test. */
-function tempFolder() {
-  const path = mkdtempSync(join(tmpdir(), 'heddle-session-'))
-  return {
-    path,
-    [Symbol.dispose]: () => rmSync(path, { recursive: true, force: true }),
-  }
-}
 
 /** A fake with no answers for each model of MODELS, with its real model id. */
 function silentModels() {

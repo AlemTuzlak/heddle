@@ -63,8 +63,8 @@ export function loadConfig(options: { home: string; project: string }) {
   return config
 }
 
-/** The Docker image of `"sandbox": true`. */
-const DEFAULT_IMAGE = 'node:24'
+/** The Docker image of `"sandbox": true`, and of a docker session when the config names none. */
+export const DEFAULT_IMAGE = 'node:24'
 
 /** The code mode of `"codeMode": true`, and of a config without `codeMode`. */
 function defaultCodeMode() {
