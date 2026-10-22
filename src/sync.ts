@@ -24,7 +24,8 @@ export interface SyncPaths {
  * - `'moved'`: it wrote the new path, and removed the old one.
  * - `'conflict'`: the file also changed in the folder. The change still ran,
  *   so the last write wins.
- * - `'refused'`: the change could write outside the folder. Nothing changed.
+ * - `'refused'`: the change could write outside the folder, or into `.git`.
+ *   Nothing changed.
  */
 export type SyncResult = 'written' | 'deleted' | 'moved' | 'conflict' | 'refused'
 
@@ -35,6 +36,7 @@ export type SyncResult = 'written' | 'deleted' | 'moved' | 'conflict' | 'refused
  *
  * - a path that is not a container path, like `C:\a` or `src/a.ts`;
  * - a path with a `..` part;
+ * - a path in a `.git` folder, in any case and also in a nested repo;
  * - a path outside `containerRoot`, and `containerRoot` itself;
  * - a name that is not one plain file name here, like `a\b` on Windows;
  * - a path that is a link;
@@ -197,8 +199,17 @@ function namesIn(containerRoot: string, containerPath: string) {
     .split('/')
     .filter((name) => name !== '' && name !== '.')
   const isRoot = names.length === 0
-  if (isRoot || names.includes('..')) return undefined
+  if (isRoot || names.includes('..') || names.some(isGitFolder)) return undefined
   return names.every(isPlainName) ? names : undefined
+}
+
+/**
+ * True for `.git`, in any case. Git on this computer runs the hooks and reads
+ * the config in a `.git` folder, so a sandbox never writes there. Its commits
+ * stay in the container, and its file changes come back as changes.
+ */
+function isGitFolder(name: string) {
+  return name.toLowerCase() === '.git'
 }
 
 /** The `lstat` of `path`, or `undefined` when nothing is there. It never follows a link. */
@@ -225,7 +236,8 @@ function staysIn(localRoot: string, local: string) {
     // `native` gives the long names on Windows, not short names like `ALEMTU~1`.
     const rel = relative(realpathSync.native(localRoot), realpathSync.native(folder))
     const isOutside = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
-    return !isOutside
+    // The real path catches a short name of `.git`, like `GIT~1` on Windows.
+    return !isOutside && !rel.split(sep).some(isGitFolder)
   } catch {
     // A link that points to nothing, or a root that is gone.
     return false

@@ -165,6 +165,18 @@ test('refuses a path outside the root', async () => {
   expect(await treeOf(dirs.base)).toEqual(UNTOUCHED)
 })
 
+test('refuses a path in .git', async () => {
+  await using dirs = await setup()
+  // Git on this computer runs the hooks and reads the config of a `.git`
+  // folder, so the container must not write there. A nested repo too.
+  const paths = ['/workspace/.git/hooks/pre-commit', '/workspace/vendor/lib/.git/config', '/workspace/.GIT/config']
+  for (const path of paths) {
+    dirs.inContainer(path, 'echo pwned')
+    expect(await dirs.sync.apply(fileChange(path, { change: 'created' }))).toBe('refused')
+  }
+  expect(await treeOf(dirs.base)).toEqual(UNTOUCHED)
+})
+
 test('refuses a path that is not a container path', async () => {
   await using dirs = await setup()
   // A path of this computer, in the folder next to the root.
