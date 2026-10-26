@@ -770,7 +770,10 @@ function sqliteSessionStore(db: Database) {
         const hasMetadata = metadata.every(
           ([key, value]) => entry.metadata?.[key] === value,
         )
-        return isChild && isMember && isFound && isHarness && hasMetadata
+        const isShown = options.withArchived === true || entry.archived !== true
+        return (
+          isChild && isMember && isFound && isHarness && hasMetadata && isShown
+        )
       })
       const page = limit === undefined ? matching : matching.slice(0, limit)
       const last = page.at(-1)

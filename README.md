@@ -12,19 +12,13 @@ You can quit at any time and continue the session later. The agent can also work
 
 You need these on your computer:
 
-- Bun 1.4.2. Bun runs heddle.
-- pnpm 11.9.0. pnpm installs the packages.
-- The TanStack AI worktree at `F:/worktrees/ai/t3-fdfd3164`, with its packages built.
-
-heddle gets the harness packages from that worktree through `link:` dependencies. The links are relative paths, so keep heddle at `F:/projects/heddle`.
+- Bun 1.4.2. Bun installs the packages and runs heddle.
 
 1. Install the packages:
 
    ```sh
-   pnpm --dir F:/projects/heddle install
+   bun install --cwd F:/projects/heddle
    ```
-
-   Do not use `bun install`. It cannot resolve the `link:` dependencies.
 
 2. Make sure that heddle runs:
 
@@ -33,8 +27,6 @@ heddle gets the harness packages from that worktree through `link:` dependencies
    ```
 
    It prints `heddle 0.1.0`.
-
-heddle loads the `dist/` folder of each linked package. After you change a package in the worktree, build that package again.
 
 ## Start
 

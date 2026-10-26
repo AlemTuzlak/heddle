@@ -3,35 +3,36 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.9.0",
   "bin": {
     "heddle": "src/main.tsx"
   },
   "scripts": {
     "test": "bun test",
-    "test:store": "bun --bun ../../worktrees/ai/t3-fdfd3164/node_modules/vitest/vitest.mjs run --maxWorkers=2",
+    "test:store": "bun --bun vitest run --maxWorkers=2",
     "typecheck": "tsc --noEmit -p .",
-    "start": "bun src/main.tsx"
+    "start": "bun src/main.tsx",
+    "build": "bun build --compile src/main.tsx --outfile dist/heddle"
   },
   "dependencies": {
     "@opentui/core": "0.6.6",
     "@opentui/react": "0.6.6",
-    "@tanstack/ai": "link:../../worktrees/ai/t3-fdfd3164/packages/ai",
-    "@tanstack/ai-anthropic": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-anthropic",
-    "@tanstack/ai-code-mode": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-code-mode",
-    "@tanstack/ai-grok": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-grok",
-    "@tanstack/ai-harness": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-harness",
-    "@tanstack/ai-isolate-quickjs": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-isolate-quickjs",
-    "@tanstack/ai-mcp": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-mcp",
-    "@tanstack/ai-openai": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-openai",
-    "@tanstack/ai-persistence": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-persistence",
-    "@tanstack/ai-sandbox": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-sandbox",
-    "@tanstack/ai-sandbox-docker": "link:../../worktrees/ai/t3-fdfd3164/packages/ai-sandbox-docker",
+    "@tanstack/ai": "^1.0.0",
+    "@tanstack/ai-anthropic": "^1.0.0",
+    "@tanstack/ai-code-mode": "^1.0.0",
+    "@tanstack/ai-grok": "^1.0.0",
+    "@tanstack/ai-harness": "^0.1.0",
+    "@tanstack/ai-isolate-quickjs": "^1.0.0",
+    "@tanstack/ai-mcp": "^1.0.0",
+    "@tanstack/ai-openai": "^1.0.0",
+    "@tanstack/ai-persistence": "^1.0.0",
+    "@tanstack/ai-sandbox": "^1.0.0",
+    "@tanstack/ai-sandbox-docker": "^1.0.0",
     "react": "^19.2.0"
   },
   "devDependencies": {
     "@types/bun": "^1.4.3",
     "@types/react": "^19",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "^5.0.5"
   }
 }
